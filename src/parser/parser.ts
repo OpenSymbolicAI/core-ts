@@ -1,17 +1,17 @@
 /**
- * Plan parser for Python-like assignment statements.
+ * Plan parser for TypeScript-like assignment statements.
  *
- * Parses a restricted subset of Python syntax:
- * - Assignment statements: var = expr or var: Type = expr
- * - Function calls: func(args, kwargs)
- * - Literals: numbers, strings, booleans, None
+ * Parses a restricted subset of TypeScript syntax:
+ * - Assignment statements: const x = expr, let x = expr, or x = expr
+ * - Optional type annotations: const x: Type = expr
+ * - Function calls: func(args) with named parameters as trailing object
+ * - Literals: numbers, strings, booleans, null, undefined
  * - Variable references
- * - Lists and dicts
+ * - Arrays and objects
  */
 
 import { PlanParseError } from '../exceptions.js';
 import type {
-  Assignment,
   CallExpression,
   Expression,
   Plan,
@@ -48,9 +48,19 @@ export class PlanParser {
   }
 
   private parseStatement(): Statement | null {
-    // Skip empty lines
-    if (this.check(TokenType.NEWLINE) || this.check(TokenType.EOF)) {
+    // Skip empty lines and bare semicolons
+    if (this.check(TokenType.NEWLINE) || this.check(TokenType.SEMICOLON) || this.check(TokenType.EOF)) {
       return null;
+    }
+
+    const line = this.peek().line;
+
+    // Check for const/let declaration
+    let declarationKind: 'const' | 'let' | undefined;
+    if (this.match(TokenType.CONST)) {
+      declarationKind = 'const';
+    } else if (this.match(TokenType.LET)) {
+      declarationKind = 'let';
     }
 
     // Parse: variable = expression
@@ -60,7 +70,6 @@ export class PlanParser {
       'Expected variable name at start of statement'
     );
     const variable = varToken.value;
-    const line = varToken.line;
 
     let typeAnnotation: string | undefined;
 
@@ -77,8 +86,10 @@ export class PlanParser {
 
     const value = this.parseExpression();
 
-    // Consume newline or EOF
+    // Consume statement terminator (newline, semicolon, or EOF)
     if (!this.check(TokenType.EOF)) {
+      // Try to consume semicolon first, then newline
+      this.match(TokenType.SEMICOLON);
       this.match(TokenType.NEWLINE);
     }
 
@@ -86,6 +97,7 @@ export class PlanParser {
       type: 'assignment',
       variable,
       typeAnnotation,
+      declarationKind,
       value,
       line,
     };
@@ -118,10 +130,16 @@ export class PlanParser {
       return { type: 'boolean', value: false };
     }
 
-    // None/null
-    if (this.check(TokenType.NONE)) {
+    // null
+    if (this.check(TokenType.NULL)) {
       this.advance();
       return { type: 'null' };
+    }
+
+    // undefined
+    if (this.check(TokenType.UNDEFINED)) {
+      this.advance();
+      return { type: 'undefined' };
     }
 
     // List literal: [elem, elem, ...]
@@ -139,7 +157,13 @@ export class PlanParser {
       const token = this.advance();
       let expr: Expression = { type: 'identifier', name: token.value };
 
-      // Check for attribute access (obj.attr) or method call (obj.method())
+      // Check for function call first
+      if (this.check(TokenType.LPAREN)) {
+        const callee = this.expressionToCallee(expr);
+        expr = this.parseCallArgs(callee);
+      }
+
+      // Handle chained access: obj.attr, obj.method(), result.prop, etc.
       while (this.match(TokenType.DOT)) {
         const attrToken = this.expect(
           TokenType.IDENTIFIER,
@@ -149,23 +173,16 @@ export class PlanParser {
         // Check if this is a method call
         if (this.check(TokenType.LPAREN)) {
           // It's a method call like obj.method(args)
-          // We'll treat this as a call with the full dotted name
           const callee = `${this.expressionToCallee(expr)}.${attrToken.value}`;
-          return this.parseCallArgs(callee);
+          expr = this.parseCallArgs(callee);
+        } else {
+          // Just attribute access
+          expr = {
+            type: 'attribute',
+            object: expr,
+            attribute: attrToken.value,
+          };
         }
-
-        // Just attribute access
-        expr = {
-          type: 'attribute',
-          object: expr,
-          attribute: attrToken.value,
-        };
-      }
-
-      // Check for function call
-      if (this.check(TokenType.LPAREN)) {
-        const callee = this.expressionToCallee(expr);
-        return this.parseCallArgs(callee);
       }
 
       return expr;
@@ -330,8 +347,8 @@ export class PlanParser {
   }
 
   private skipNewlines(): void {
-    while (this.match(TokenType.NEWLINE)) {
-      // Skip
+    while (this.match(TokenType.NEWLINE) || this.match(TokenType.SEMICOLON)) {
+      // Skip newlines and semicolons
     }
   }
 }

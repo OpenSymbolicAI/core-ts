@@ -8,6 +8,7 @@ import {
   PlanExecute,
   primitive,
   decomposition,
+  recordExample,
   LLM,
   type LLMConfig,
   type LLMResponse,
@@ -33,7 +34,7 @@ class MockLLM extends LLM {
     for (const [pattern, plan] of this.responses) {
       if (prompt.includes(pattern)) {
         return {
-          text: '```python\n' + plan + '\n```',
+          text: '```typescript\n' + plan + '\n```',
           usage: { inputTokens: 100, outputTokens: 50 },
           provider: 'mock',
           model: 'mock',
@@ -43,7 +44,7 @@ class MockLLM extends LLM {
 
     // Default response for simple addition
     return {
-      text: '```python\nresult = add(2, 3)\n```',
+      text: '```typescript\nresult = add(2, 3)\n```',
       usage: { inputTokens: 100, outputTokens: 50 },
       provider: 'mock',
       model: 'mock',
@@ -143,18 +144,22 @@ class Calculator extends PlanExecute {
 
   @decomposition(
     'Calculate the area of a circle given radius',
-    `radius_squared = multiply(radius, radius)
-area = multiply(radius_squared, 3.14159)`,
+    recordExample(calc => {
+      calc.radius_squared = calc.multiply(calc.radius, calc.radius);
+      calc.area = calc.multiply(calc.radius_squared, 3.14159);
+    }),
     'Use formula: π * r²'
   )
   _exampleCircleArea() {}
 
   @decomposition(
     'Calculate the hypotenuse of a right triangle given two sides',
-    `a_squared = multiply(a, a)
-b_squared = multiply(b, b)
-sum_of_squares = add(a_squared, b_squared)
-hypotenuse = squareRoot(sum_of_squares)`,
+    recordExample(calc => {
+      calc.a_squared = calc.multiply(calc.a, calc.a);
+      calc.b_squared = calc.multiply(calc.b, calc.b);
+      calc.sum_of_squares = calc.add(calc.a_squared, calc.b_squared);
+      calc.hypotenuse = calc.squareRoot(calc.sum_of_squares);
+    }),
     'Use Pythagorean theorem: √(a² + b²)'
   )
   _exampleHypotenuse() {}

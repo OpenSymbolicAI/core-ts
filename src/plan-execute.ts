@@ -22,7 +22,7 @@ import {
 } from './core.js';
 import { PlanParser, validatePlanOrThrow, DEFAULT_ALLOWED_BUILTINS } from './parser/index.js';
 import { ExecutionNamespace, DEFAULT_BUILTINS, PlanInterpreter } from './executor/index.js';
-import { PlanValidationError, ExecutionError } from './exceptions.js';
+import { PlanValidationError } from './exceptions.js';
 import type {
   PrimitiveMetadata,
   DecompositionMetadata,
@@ -30,12 +30,10 @@ import type {
   ExecutionResult,
   ExecutionTrace,
   OrchestrationResult,
-  OrchestrationMetrics,
   PlanAttempt,
   ConversationTurn,
   MutationHookContext,
   PlanGeneration,
-  TokenUsage,
 } from './models.js';
 
 /**
@@ -94,10 +92,10 @@ export interface PlanExecuteConfig {
  *   }
  *
  *   @decomposition(
- *     'Calculate sum of array',
- *     'total = add(0, 0)\nfor n in numbers:\n  total = add(total, n)'
+ *     'Add two numbers',
+ *     'const result = add(2, 3)'
  *   )
- *   _exampleSum() {}
+ *   _exampleAdd() {}
  * }
  *
  * const calc = new Calculator(llmConfig, 'Calculator', 'A simple calculator');
@@ -170,7 +168,7 @@ export abstract class PlanExecute {
         this.validatePlan(planResult.plan);
 
         // Execute the plan
-        const execResult = this.execute(planResult.plan);
+        const execResult = await this.execute(planResult.plan);
         const allSucceeded = execResult.trace.steps.every((s) => s.success);
 
         // Record in multi-turn history
@@ -300,7 +298,7 @@ export abstract class PlanExecute {
   /**
    * Execute a plan that has already been validated.
    */
-  execute(planText: string): ExecutionResult {
+  async execute(planText: string): Promise<ExecutionResult> {
     // Parse the plan
     const plan = this.parser.parse(planText);
 
@@ -324,7 +322,7 @@ export abstract class PlanExecute {
     });
 
     // Execute
-    const result = interpreter.execute(plan);
+    const result = await interpreter.execute(plan);
 
     // Persist namespace for multi-turn
     if (this.config.multiTurn) {
@@ -334,7 +332,7 @@ export abstract class PlanExecute {
     // Build trace
     const trace: ExecutionTrace = {
       steps: result.steps,
-      totalTimeSeconds: result.steps.reduce((sum, s) => sum + s.timeSeconds, 0),
+      totalTimeSeconds: result.steps.reduce((sum: number, s) => sum + s.timeSeconds, 0),
     };
 
     const lastStep = result.steps[result.steps.length - 1];
@@ -372,7 +370,7 @@ export abstract class PlanExecute {
     for (const stmt of plan.statements) {
       if (stmt.value.type === 'call') {
         let methodName = stmt.value.callee;
-        if (methodName.startsWith('self.')) {
+        if (methodName.startsWith('this.')) {
           methodName = methodName.slice(5);
         }
 
@@ -455,7 +453,7 @@ export abstract class PlanExecute {
     const parts: string[] = [];
 
     // System introduction
-    parts.push(`You are ${this.name}, an AI agent that generates Python code plans.`);
+    parts.push(`You are ${this.name}, an AI agent that generates TypeScript code plans.`);
     if (this.description) {
       parts.push('');
       parts.push(this.description);
@@ -467,7 +465,7 @@ export abstract class PlanExecute {
     parts.push('');
     parts.push('You can ONLY call these methods:');
     parts.push('');
-    parts.push('```python');
+    parts.push('```typescript');
     parts.push(primitiveDocs);
     parts.push('```');
 
@@ -513,7 +511,7 @@ export abstract class PlanExecute {
     parts.push('');
     parts.push('## Task');
     parts.push('');
-    parts.push(`Generate Python code to accomplish this task: ${task}`);
+    parts.push(`Generate TypeScript code to accomplish this task: ${task}`);
 
     // Feedback from previous attempt
     if (feedback) {
@@ -529,17 +527,18 @@ export abstract class PlanExecute {
     parts.push('');
     parts.push('## Rules');
     parts.push('');
-    parts.push('1. Output ONLY Python assignment statements');
+    parts.push('1. Output ONLY TypeScript assignment statements (const x = ...)');
     parts.push('2. Each statement must assign a result to a variable');
     parts.push('3. You can ONLY call the primitive methods listed above');
     parts.push('4. Do NOT use imports, loops, conditionals, or function definitions');
     parts.push('5. The last assigned variable will be the final result');
+    parts.push('6. Use // for comments, true/false for booleans, null for null values');
 
     // Output format
     parts.push('');
     parts.push('## Output');
     parts.push('');
-    parts.push('```python');
+    parts.push('```typescript');
 
     return parts.join('\n');
   }
@@ -549,10 +548,16 @@ export abstract class PlanExecute {
    * Override to customize extraction.
    */
   protected extractCodeBlock(response: string): string {
-    // Try to find a Python code block
-    const pythonMatch = response.match(/```python\s*([\s\S]*?)```/);
-    if (pythonMatch) {
-      return pythonMatch[1].trim();
+    // Try to find a TypeScript code block
+    const tsMatch = response.match(/```(?:typescript|ts)\s*([\s\S]*?)```/);
+    if (tsMatch) {
+      return tsMatch[1].trim();
+    }
+
+    // Try to find a JavaScript code block
+    const jsMatch = response.match(/```(?:javascript|js)\s*([\s\S]*?)```/);
+    if (jsMatch) {
+      return jsMatch[1].trim();
     }
 
     // Try to find any code block
@@ -567,16 +572,19 @@ export abstract class PlanExecute {
     const codeLines: string[] = [];
 
     for (const line of lines) {
+      // Skip comment-only lines
+      if (/^\s*\/\//.test(line)) {
+        continue;
+      }
       // Skip lines that look like prose
       if (
-        line.startsWith('#') ||
         /^[A-Z][a-z].*:$/.test(line) ||
         /^(Here|This|The|I|Let)/.test(line)
       ) {
         continue;
       }
-      // Include lines that look like Python assignments
-      if (/^\s*\w+\s*=/.test(line)) {
+      // Include lines that look like TypeScript assignments
+      if (/^\s*(?:const|let)?\s*\w+\s*(?::\s*\w+)?\s*=/.test(line)) {
         codeLines.push(line);
       }
     }

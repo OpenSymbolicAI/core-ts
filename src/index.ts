@@ -37,6 +37,7 @@ export type { PlanExecuteConfig } from './plan-execute.js';
 export {
   primitive,
   decomposition,
+  recordExample,
   getPrimitives,
   getDecompositions,
   isPrimitive,
@@ -46,7 +47,7 @@ export {
   formatPrimitiveSignatures,
   formatDecompositionExamples,
 } from './core.js';
-export type { PrimitiveOptions } from './core.js';
+export type { PrimitiveOptions, ExampleProxy } from './core.js';
 
 // Models
 export {

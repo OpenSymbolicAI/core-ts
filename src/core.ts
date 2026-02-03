@@ -81,7 +81,7 @@ export function primitive(options: PrimitiveOptions = {}) {
  * in the planning prompt.
  *
  * @param intent - A high-level description of what this decomposition accomplishes
- * @param sourceCode - The Python-like code showing the decomposition
+ * @param sourceCode - The TypeScript code showing the decomposition (use recordExample() helper)
  * @param expandedIntent - Optional more detailed description of the approach
  *
  * @example
@@ -89,8 +89,10 @@ export function primitive(options: PrimitiveOptions = {}) {
  * class Calculator extends PlanExecute {
  *   @decomposition(
  *     'Calculate the area of a circle',
- *     `radius_squared = multiply(radius, radius)
- * area = multiply(radius_squared, 3.14159)`,
+ *     recordExample(calc => {
+ *       calc.radius_squared = calc.multiply(calc.radius, calc.radius);
+ *       calc.area = calc.multiply(calc.radius_squared, 3.14159);
+ *     }),
  *     'Use formula: π * r²'
  *   )
  *   _exampleCircleArea() {}
@@ -271,20 +273,19 @@ export function formatPrimitiveSignatures(
 
   for (const [name, metadata] of primitives) {
     const method = (instance as Record<string, unknown>)[name];
-    let signature = metadata.signature || name;
+    let signature = metadata.signature || `${name}()`;
 
     // Try to get better signature from the method
     if (typeof method === 'function') {
       signature = extractSignature(method, name);
     }
 
-    lines.push(`def ${signature}:`);
-    if (metadata.docstring) {
-      lines.push(`    """${metadata.docstring}"""`);
-    } else {
-      const readOnlyNote = metadata.readOnly ? ' (read-only)' : '';
-      lines.push(`    """Primitive operation${readOnlyNote}"""`);
-    }
+    // Format as TypeScript method
+    const readOnlyNote = metadata.readOnly ? ' // read-only' : '';
+    const docstring = metadata.docstring || 'Primitive operation';
+
+    lines.push(`/** ${docstring} */${readOnlyNote}`);
+    lines.push(`${signature}`);
     lines.push('');
   }
 
@@ -310,7 +311,7 @@ export function formatDecompositionExamples(
       example.push(`Approach: ${metadata.expandedIntent}`);
     }
     example.push('');
-    example.push('```python');
+    example.push('```typescript');
     example.push(metadata.sourceCode.trim());
     example.push('```');
 
@@ -318,4 +319,164 @@ export function formatDecompositionExamples(
   }
 
   return examples.join('\n\n');
+}
+
+// ============================================================
+// recordExample - Type-safe decomposition recording
+// ============================================================
+
+/** Symbol to identify recorded values */
+const RECORDED_VALUE = Symbol('recordedValue');
+
+/** A symbolic value representing a variable or expression in the recorded example */
+interface RecordedValue {
+  [RECORDED_VALUE]: true;
+  expression: string;
+}
+
+function isRecordedValue(v: unknown): v is RecordedValue {
+  if (v === null || v === undefined) return false;
+  // Check both objects and functions (callables are functions with the symbol attached)
+  if (typeof v !== 'object' && typeof v !== 'function') return false;
+  // Use Object.prototype.hasOwnProperty to check for the symbol
+  const hasSymbol = Object.prototype.hasOwnProperty.call(v, RECORDED_VALUE);
+  return hasSymbol && (v as RecordedValue)[RECORDED_VALUE] === true;
+}
+
+function makeRecordedValue(expression: string): RecordedValue {
+  return { [RECORDED_VALUE]: true, expression };
+}
+
+/**
+ * Type for the proxy object passed to recordExample callbacks.
+ * Allows both property access (for variables) and method calls (for primitives).
+ *
+ * Each property can be:
+ * - Called as a function: `proxy.multiply(a, b)` - records a primitive call
+ * - Assigned to: `proxy.result = proxy.add(1, 2)` - records an assignment
+ * - Used as a value: `proxy.multiply(proxy.x, proxy.y)` - references an input variable
+ *
+ * Note: We use `any` here because TypeScript's type system cannot fully express
+ * the dynamic proxy behavior where every property is both callable and assignable.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ExampleProxy = Record<string, any>;
+
+/**
+ * Record a decomposition example using method call syntax instead of string literals.
+ *
+ * This provides a more type-safe and refactor-friendly way to write decomposition
+ * examples. The proxy captures all method calls and variable assignments, converting
+ * them to TypeScript-style source code for use in prompts.
+ *
+ * @param fn - A function that uses the proxy to demonstrate the decomposition
+ * @returns The recorded source code as a string
+ *
+ * @example
+ * ```typescript
+ * @decomposition(
+ *   'Calculate the area of a circle given radius',
+ *   recordExample(calc => {
+ *     calc.radius_squared = calc.multiply(calc.radius, calc.radius);
+ *     calc.area = calc.multiply(calc.radius_squared, 3.14159);
+ *   }),
+ *   'Use formula: π * r²'
+ * )
+ * _exampleCircleArea() {}
+ * ```
+ *
+ * This produces:
+ * ```typescript
+ * const radius_squared = multiply(radius, radius)
+ * const area = multiply(radius_squared, 3.14159)
+ * ```
+ */
+export function recordExample(fn: (proxy: ExampleProxy) => void): string {
+  const statements: string[] = [];
+  const assignedVars = new Map<string, RecordedValue>();
+
+  const formatArg = (arg: unknown): string => {
+    if (isRecordedValue(arg)) {
+      return arg.expression;
+    }
+    if (typeof arg === 'string') {
+      // Check if it looks like a variable name (identifier) or a string literal
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(arg)) {
+        return arg; // Treat as variable reference
+      }
+      return `"${arg}"`; // Treat as string literal
+    }
+    if (typeof arg === 'number' || typeof arg === 'boolean') {
+      return String(arg);
+    }
+    if (arg === null) {
+      return 'null';
+    }
+    if (arg === undefined) {
+      return 'undefined';
+    }
+    if (Array.isArray(arg)) {
+      return `[${arg.map(formatArg).join(', ')}]`;
+    }
+    if (typeof arg === 'object') {
+      const entries = Object.entries(arg)
+        .map(([k, v]) => `${k}: ${formatArg(v)}`)
+        .join(', ');
+      return `{ ${entries} }`;
+    }
+    return String(arg);
+  };
+
+  const createCallableValue = (name: string): ExampleProxy => {
+    // Create a function that records method calls
+    const callable = (...args: unknown[]) => {
+      const argStrings = args.map(formatArg);
+      const expression = `${name}(${argStrings.join(', ')})`;
+      return makeRecordedValue(expression);
+    };
+
+    // Also make it usable as a value (for input variables like calc.radius)
+    Object.defineProperty(callable, RECORDED_VALUE, {
+      value: true,
+      enumerable: false,
+    });
+    Object.defineProperty(callable, 'expression', {
+      value: name,
+      enumerable: false,
+    });
+
+    // The proxy handles all property access, so we cast to ExampleProxy
+    return callable as unknown as ExampleProxy;
+  };
+
+  const proxy = new Proxy({} as ExampleProxy, {
+    get(_, prop: string | symbol): ExampleProxy {
+      if (typeof prop === 'symbol') {
+        return undefined as unknown as ExampleProxy;
+      }
+
+      // If this variable was previously assigned, return its recorded value
+      if (assignedVars.has(prop)) {
+        return createCallableValue(prop);
+      }
+
+      // Return a callable that can be used as both a method and a variable
+      return createCallableValue(prop);
+    },
+
+    set(_, prop: string | symbol, value: unknown): boolean {
+      if (typeof prop === 'symbol') {
+        return false;
+      }
+
+      if (isRecordedValue(value)) {
+        statements.push(`const ${prop} = ${value.expression}`);
+        assignedVars.set(prop, makeRecordedValue(prop));
+      }
+      return true;
+    },
+  });
+
+  fn(proxy);
+  return statements.join('\n');
 }

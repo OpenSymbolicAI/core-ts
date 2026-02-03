@@ -2,9 +2,9 @@
  * Plan validator to ensure safety of generated plans.
  *
  * Validates that plans only contain:
- * - Assignments to variables
+ * - Assignments to variables (const/let/bare)
  * - Calls to allowed primitives or builtins
- * - Literals, variable references, lists, and dicts
+ * - Literals, variable references, arrays, and objects
  */
 
 import type { Plan, Expression, Statement } from './ast.js';
@@ -33,8 +33,8 @@ export interface ValidationOptions {
   allowedBuiltins: Set<string>;
 
   /**
-   * Whether to allow self.method() calls.
-   * If true, 'self' prefix is stripped and the method name is validated.
+   * Whether to allow this.method() calls.
+   * If true, 'this.' prefix is stripped and the method name is validated.
    */
   allowSelfCalls?: boolean;
 }
@@ -88,7 +88,7 @@ function validateStatement(
   }
 
   // Reserved names that cannot be assigned to
-  const reserved = new Set(['self', 'True', 'False', 'None']);
+  const reserved = new Set(['this', 'true', 'false', 'null', 'undefined']);
   if (reserved.has(stmt.variable)) {
     errors.push(
       `Line ${stmt.line}: Cannot assign to reserved name '${stmt.variable}'`
@@ -110,6 +110,7 @@ function validateExpression(
     case 'string':
     case 'boolean':
     case 'null':
+    case 'undefined':
       // Literals are always valid
       break;
 
@@ -162,15 +163,15 @@ function validateCall(
 ): void {
   let methodName = call.callee;
 
-  // Handle self.method() calls
-  if (methodName.startsWith('self.')) {
+  // Handle this.method() calls
+  if (methodName.startsWith('this.')) {
     if (!options.allowSelfCalls) {
       errors.push(
-        `Line ${line}: 'self.' prefix is not allowed in calls`
+        `Line ${line}: 'this.' prefix is not allowed in calls`
       );
       return;
     }
-    methodName = methodName.slice(5); // Remove 'self.'
+    methodName = methodName.slice(5); // Remove 'this.'
   }
 
   // Check if it's an allowed call
@@ -201,85 +202,93 @@ function validateCall(
 }
 
 /**
- * List of dangerous builtins that should never be allowed.
+ * List of dangerous builtins/globals that should never be allowed.
+ * These are JavaScript/Node.js specific dangerous functions.
  */
 export const DANGEROUS_BUILTINS = new Set([
+  // Code execution
   'eval',
-  'exec',
-  'compile',
-  '__import__',
-  'open',
-  'input',
-  'breakpoint',
-  'globals',
-  'locals',
-  'vars',
-  'dir',
-  'getattr',
-  'setattr',
-  'delattr',
-  'hasattr',
-  'type',
-  'isinstance',
-  'issubclass',
-  'callable',
-  'classmethod',
-  'staticmethod',
-  'property',
-  'super',
-  'object',
-  'memoryview',
-  'bytearray',
-  'bytes',
+  'Function',
+
+  // Timers (can execute code strings in some environments)
+  'setTimeout',
+  'setInterval',
+  'setImmediate',
+
+  // Node.js specific
+  'require',
+  'import',
+  'process',
+  '__dirname',
+  '__filename',
+
+  // Browser specific
+  'document',
+  'window',
+  'location',
+  'XMLHttpRequest',
+  'fetch',
+
+  // Reflection/introspection
+  'Reflect',
+  'Proxy',
+
+  // Other dangerous globals
+  'constructor',
+  '__proto__',
+  'prototype',
 ]);
 
 /**
  * Default safe builtins that can be used in plans.
+ * These are implemented in the executor namespace.
  */
 export const DEFAULT_ALLOWED_BUILTINS = new Set([
-  // Collection functions
-  'len',
-  'range',
-  'enumerate',
-  'zip',
+  // Array methods (as functions)
+  'length',
   'map',
   'filter',
-  'sorted',
-  'reversed',
+  'reduce',
+  'find',
+  'findIndex',
+  'some',
+  'every',
+  'includes',
+  'indexOf',
+  'slice',
+  'concat',
+  'join',
+  'reverse',
+  'sort',
 
-  // Type constructors
-  'int',
-  'float',
-  'str',
-  'bool',
-  'list',
-  'dict',
-  'set',
-  'tuple',
-  'frozenset',
+  // Type conversion
+  'Number',
+  'String',
+  'Boolean',
+  'Array',
+  'Object',
 
-  // Math functions
+  // Math utilities
+  'Math',
   'abs',
   'min',
   'max',
-  'sum',
   'round',
+  'floor',
+  'ceil',
   'pow',
-  'divmod',
+  'sqrt',
 
-  // Other safe builtins
-  'any',
-  'all',
-  'print',
-  'repr',
-  'format',
-  'slice',
-  'hash',
-  'id',
-  'ord',
-  'chr',
-  'hex',
-  'oct',
-  'bin',
-  'ascii',
+  // Object utilities
+  'keys',
+  'values',
+  'entries',
+
+  // Other safe utilities
+  'console',
+  'JSON',
+  'parseInt',
+  'parseFloat',
+  'isNaN',
+  'isFinite',
 ]);

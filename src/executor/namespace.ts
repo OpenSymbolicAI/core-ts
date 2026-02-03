@@ -80,13 +80,13 @@ export class ExecutionNamespace {
    * Lookup order: variables -> primitives -> builtins
    */
   get(name: string): unknown {
-    // Handle self reference
-    if (name === 'self') {
+    // Handle this reference (agent instance)
+    if (name === 'this') {
       return this.agent;
     }
 
-    // Handle self.method access
-    if (name.startsWith('self.')) {
+    // Handle this.method access
+    if (name.startsWith('this.')) {
       const methodName = name.slice(5);
       if (this.primitives.has(methodName)) {
         return this.primitives.get(methodName);
@@ -124,7 +124,7 @@ export class ExecutionNamespace {
    */
   has(name: string): boolean {
     return (
-      name === 'self' ||
+      name === 'this' ||
       this.variables.has(name) ||
       this.primitives.has(name) ||
       this.builtins.has(name)
@@ -135,8 +135,8 @@ export class ExecutionNamespace {
    * Check if a name refers to a primitive.
    */
   isPrimitive(name: string): boolean {
-    // Handle self.method
-    if (name.startsWith('self.')) {
+    // Handle this.method
+    if (name.startsWith('this.')) {
       return this.primitives.has(name.slice(5));
     }
     return this.primitives.has(name);
@@ -146,8 +146,8 @@ export class ExecutionNamespace {
    * Get the metadata for a primitive.
    */
   getPrimitiveMetadata(name: string): PrimitiveMetadata | undefined {
-    // Handle self.method
-    if (name.startsWith('self.')) {
+    // Handle this.method
+    if (name.startsWith('this.')) {
       return this.primitiveMeta.get(name.slice(5));
     }
     return this.primitiveMeta.get(name);

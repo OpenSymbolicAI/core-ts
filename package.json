@@ -2,8 +2,8 @@
   "name": "@opensymbolicai/core",
   "version": "0.1.0",
   "description": "AI-native programming framework where agents define primitives and LLMs generate execution plans",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
   "type": "module",
   "scripts": {
     "build": "tsc",
@@ -23,13 +23,24 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OpenSymbolicAI/core-ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/OpenSymbolicAI/core-ts/issues"
+  },
+  "homepage": "https://github.com/OpenSymbolicAI/core-ts#readme",
   "dependencies": {
     "reflect-metadata": "^0.2.2",
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@types/node": "^22.0.0",
+    "eslint": "^9.39.2",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.54.0",
     "vitest": "^2.1.0"
   },
   "engines": {
@@ -41,8 +52,8 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
     }
   }
 }

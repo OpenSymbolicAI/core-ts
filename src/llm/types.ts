@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TokenUsage, TokenUsageSchema } from '../models.js';
+import { TokenUsage } from '../models.js';
 
 /**
  * Supported LLM providers.

@@ -15,6 +15,7 @@ import {
   PlanExecute,
   primitive,
   decomposition,
+  recordExample,
   type LLMConfig,
 } from '../src/index.js';
 
@@ -165,11 +166,14 @@ class Calculator extends PlanExecute {
 
   /**
    * Example: Calculate the area of a circle.
+   * Uses recordExample for type-safe method references.
    */
   @decomposition(
     'Calculate the area of a circle given radius',
-    `radius_squared = multiply(radius, radius)
-area = multiply(radius_squared, 3.14159)`,
+    recordExample(calc => {
+      calc.radius_squared = calc.multiply(calc.radius, calc.radius);
+      calc.area = calc.multiply(calc.radius_squared, 3.14159);
+    }),
     'Use formula: π * r²'
   )
   _exampleCircleArea() {}
@@ -179,10 +183,12 @@ area = multiply(radius_squared, 3.14159)`,
    */
   @decomposition(
     'Calculate the hypotenuse of a right triangle given two sides',
-    `a_squared = multiply(a, a)
-b_squared = multiply(b, b)
-sum_of_squares = add(a_squared, b_squared)
-hypotenuse = squareRoot(sum_of_squares)`,
+    recordExample(calc => {
+      calc.a_squared = calc.multiply(calc.a, calc.a);
+      calc.b_squared = calc.multiply(calc.b, calc.b);
+      calc.sum_of_squares = calc.add(calc.a_squared, calc.b_squared);
+      calc.hypotenuse = calc.squareRoot(calc.sum_of_squares);
+    }),
     'Use Pythagorean theorem: √(a² + b²)'
   )
   _exampleHypotenuse() {}
@@ -192,9 +198,11 @@ hypotenuse = squareRoot(sum_of_squares)`,
    */
   @decomposition(
     'Calculate compound interest',
-    `one_plus_rate = add(1, rate)
-growth_factor = power(one_plus_rate, years)
-final_amount = multiply(principal, growth_factor)`,
+    recordExample(calc => {
+      calc.one_plus_rate = calc.add(1, calc.rate);
+      calc.growth_factor = calc.power(calc.one_plus_rate, calc.years);
+      calc.final_amount = calc.multiply(calc.principal, calc.growth_factor);
+    }),
     'Use formula: P * (1 + r)^t'
   )
   _exampleCompoundInterest() {}
@@ -204,8 +212,10 @@ final_amount = multiply(principal, growth_factor)`,
    */
   @decomposition(
     'Calculate what percentage one number is of another',
-    `fraction = divide(part, whole)
-percentage = multiply(fraction, 100)`,
+    recordExample(calc => {
+      calc.fraction = calc.divide(calc.part, calc.whole);
+      calc.percentage = calc.multiply(calc.fraction, 100);
+    }),
     'Use formula: (part / whole) * 100'
   )
   _examplePercentage() {}

@@ -59,14 +59,14 @@ export class PlanInterpreter {
   /**
    * Execute a complete plan.
    */
-  execute(plan: Plan): InterpretResult {
+  async execute(plan: Plan): Promise<InterpretResult> {
     const steps: ExecutionStep[] = [];
     let finalValue: unknown = undefined;
     let finalVariable = '';
 
     for (let i = 0; i < plan.statements.length; i++) {
       const stmt = plan.statements[i];
-      const step = this.executeStatement(stmt, i + 1);
+      const step = await this.executeStatement(stmt, i + 1);
       steps.push(step);
 
       if (step.success) {
@@ -94,7 +94,7 @@ export class PlanInterpreter {
   /**
    * Execute a single statement and return the execution step.
    */
-  executeStatement(stmt: Statement, stepNumber: number): ExecutionStep {
+  async executeStatement(stmt: Statement, stepNumber: number): Promise<ExecutionStep> {
     const startTime = performance.now();
     const namespaceBefore = this.namespace.serializableSnapshot();
     const statementStr = statementToString(stmt);
@@ -128,7 +128,15 @@ export class PlanInterpreter {
       }
 
       // Evaluate the expression
-      const value = this.evaluateExpression(stmt.value);
+      const value = await this.evaluateExpression(stmt.value);
+
+      // Safety check: primitives must not return functions
+      if (typeof value === 'function') {
+        throw new OperationError(
+          `Primitive returned a function, which is not allowed for security reasons`,
+          stmt.value.type === 'call' ? stmt.value.callee : 'expression'
+        );
+      }
 
       // Assign to variable
       this.namespace.set(stmt.variable, value);
@@ -186,7 +194,7 @@ export class PlanInterpreter {
   /**
    * Evaluate an expression and return its value.
    */
-  private evaluateExpression(expr: Expression): unknown {
+  private async evaluateExpression(expr: Expression): Promise<unknown> {
     switch (expr.type) {
       case 'number':
         return expr.value;
@@ -200,29 +208,32 @@ export class PlanInterpreter {
       case 'null':
         return null;
 
+      case 'undefined':
+        return undefined;
+
       case 'identifier':
         return this.namespace.get(expr.name);
 
       case 'list':
-        return expr.elements.map((e) => this.evaluateExpression(e));
+        return Promise.all(expr.elements.map((e) => this.evaluateExpression(e)));
 
       case 'dict': {
         const result: Record<string, unknown> = {};
         for (const entry of expr.entries) {
-          const key = this.evaluateExpression(entry.key);
+          const key = await this.evaluateExpression(entry.key);
           if (typeof key !== 'string' && typeof key !== 'number') {
             throw new OperationError(
               'Dict keys must be strings or numbers',
               'dict'
             );
           }
-          result[String(key)] = this.evaluateExpression(entry.value);
+          result[String(key)] = await this.evaluateExpression(entry.value);
         }
         return result;
       }
 
       case 'attribute': {
-        const obj = this.evaluateExpression(expr.object);
+        const obj = await this.evaluateExpression(expr.object);
         if (obj === null || obj === undefined) {
           throw new OperationError(
             `Cannot access attribute '${expr.attribute}' of ${obj}`,
@@ -240,33 +251,33 @@ export class PlanInterpreter {
   /**
    * Execute a function call.
    */
-  private executeCall(call: CallExpression): unknown {
+  private async executeCall(call: CallExpression): Promise<unknown> {
     const fn = this.namespace.get(call.callee);
     if (typeof fn !== 'function') {
       throw new OperationError(`'${call.callee}' is not a function`, call.callee);
     }
 
     // Evaluate positional arguments
-    const args = call.args.map((arg) => this.evaluateExpression(arg));
+    const args = await Promise.all(call.args.map((arg) => this.evaluateExpression(arg)));
 
     // Handle keyword arguments
     if (Object.keys(call.kwargs).length > 0) {
       // Python-style kwargs become an options object as the last argument
       const options: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(call.kwargs)) {
-        options[key] = this.evaluateExpression(value);
+        options[key] = await this.evaluateExpression(value);
       }
-      return fn(...args, options);
+      return await fn(...args, options);
     }
 
-    return fn(...args);
+    return await fn(...args);
   }
 
   /**
-   * Resolve a callee name to a primitive name (strip 'self.' prefix).
+   * Resolve a callee name to a primitive name (strip 'this.' prefix).
    */
   private resolvePrimitiveName(callee: string): string {
-    if (callee.startsWith('self.')) {
+    if (callee.startsWith('this.')) {
       return callee.slice(5);
     }
     return callee;

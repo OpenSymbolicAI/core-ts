@@ -1,8 +1,8 @@
 /**
  * AST node types for the plan parser.
  *
- * The AST is designed to represent a restricted subset of Python:
- * - Only assignment statements
+ * The AST is designed to represent a restricted subset of TypeScript:
+ * - Only assignment statements (const/let/bare)
  * - Only primitive calls, literals, and variable references
  * - No control flow, imports, or function definitions
  */
@@ -29,7 +29,11 @@ export type NullLiteral = {
   type: 'null';
 };
 
-export type Literal = NumberLiteral | StringLiteral | BooleanLiteral | NullLiteral;
+export type UndefinedLiteral = {
+  type: 'undefined';
+};
+
+export type Literal = NumberLiteral | StringLiteral | BooleanLiteral | NullLiteral | UndefinedLiteral;
 
 /**
  * Reference to a variable.
@@ -86,13 +90,14 @@ export type Expression =
   | CallExpression;
 
 /**
- * Assignment statement: variable = expression
- * or: variable: Type = expression
+ * Assignment statement: const x = expr, let x = expr, or x = expr
+ * Optionally with type annotation: const x: Type = expr
  */
 export interface Assignment {
   type: 'assignment';
   variable: string;
   typeAnnotation?: string;
+  declarationKind?: 'const' | 'let';
   value: Expression;
   line: number;
 }
@@ -118,7 +123,8 @@ export function isLiteral(expr: Expression): expr is Literal {
     expr.type === 'number' ||
     expr.type === 'string' ||
     expr.type === 'boolean' ||
-    expr.type === 'null'
+    expr.type === 'null' ||
+    expr.type === 'undefined'
   );
 }
 
@@ -146,9 +152,11 @@ export function expressionToString(expr: Expression): string {
     case 'string':
       return JSON.stringify(expr.value);
     case 'boolean':
-      return expr.value ? 'True' : 'False';
+      return expr.value ? 'true' : 'false';
     case 'null':
-      return 'None';
+      return 'null';
+    case 'undefined':
+      return 'undefined';
     case 'identifier':
       return expr.name;
     case 'list':
@@ -164,7 +172,7 @@ export function expressionToString(expr: Expression): string {
     case 'call': {
       const args = expr.args.map(expressionToString);
       const kwargs = Object.entries(expr.kwargs).map(
-        ([k, v]) => `${k}=${expressionToString(v)}`
+        ([k, v]) => `${k}: ${expressionToString(v)}`
       );
       return `${expr.callee}(${[...args, ...kwargs].join(', ')})`;
     }
@@ -175,6 +183,7 @@ export function expressionToString(expr: Expression): string {
  * Get the string representation of a statement.
  */
 export function statementToString(stmt: Statement): string {
+  const prefix = stmt.declarationKind ? `${stmt.declarationKind} ` : '';
   const typeAnn = stmt.typeAnnotation ? `: ${stmt.typeAnnotation}` : '';
-  return `${stmt.variable}${typeAnn} = ${expressionToString(stmt.value)}`;
+  return `${prefix}${stmt.variable}${typeAnn} = ${expressionToString(stmt.value)}`;
 }

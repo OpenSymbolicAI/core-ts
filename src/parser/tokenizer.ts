@@ -1,13 +1,13 @@
 /**
- * Simple tokenizer for Python-like plan statements.
+ * Simple tokenizer for TypeScript-like plan statements.
  *
  * Handles the minimal set of tokens needed for assignment statements:
  * - Identifiers
  * - Numbers (int and float)
- * - Strings (single, double, and triple-quoted)
+ * - Strings (single, double, and template literals)
  * - Operators: = :
  * - Delimiters: ( ) [ ] { } , .
- * - Keywords: True, False, None
+ * - Keywords: true, false, null, undefined, const, let
  * - Newlines and EOF
  */
 
@@ -20,7 +20,10 @@ export enum TokenType {
   // Keywords
   TRUE = 'TRUE',
   FALSE = 'FALSE',
-  NONE = 'NONE',
+  NULL = 'NULL',
+  UNDEFINED = 'UNDEFINED',
+  CONST = 'CONST',
+  LET = 'LET',
 
   // Operators
   EQUALS = 'EQUALS',
@@ -38,6 +41,7 @@ export enum TokenType {
 
   // Control
   NEWLINE = 'NEWLINE',
+  SEMICOLON = 'SEMICOLON',
   EOF = 'EOF',
 }
 
@@ -49,9 +53,12 @@ export interface Token {
 }
 
 const KEYWORDS: Record<string, TokenType> = {
-  True: TokenType.TRUE,
-  False: TokenType.FALSE,
-  None: TokenType.NONE,
+  true: TokenType.TRUE,
+  false: TokenType.FALSE,
+  null: TokenType.NULL,
+  undefined: TokenType.UNDEFINED,
+  const: TokenType.CONST,
+  let: TokenType.LET,
 };
 
 const SINGLE_CHAR_TOKENS: Record<string, TokenType> = {
@@ -65,6 +72,7 @@ const SINGLE_CHAR_TOKENS: Record<string, TokenType> = {
   '{': TokenType.LBRACE,
   '}': TokenType.RBRACE,
   ',': TokenType.COMMA,
+  ';': TokenType.SEMICOLON,
 };
 
 /**
@@ -114,37 +122,23 @@ export function tokenize(source: string): Token[] {
 
   function readString(quote: string): string {
     const startColumn = column;
-    const isTriple = peek(1) === quote && peek(2) === quote;
+    const isTemplate = quote === '`';
 
-    if (isTriple) {
-      advance(); // first quote
-      advance(); // second quote
-      advance(); // third quote
-    } else {
-      advance(); // single quote
-    }
+    advance(); // opening quote
 
     let value = '';
-    const endQuote = isTriple ? quote + quote + quote : quote;
 
     while (pos < source.length) {
-      if (isTriple) {
-        if (peek() === quote && peek(1) === quote && peek(2) === quote) {
-          advance();
-          advance();
-          advance();
-          break;
-        }
-      } else {
-        if (peek() === quote) {
-          advance();
-          break;
-        }
-        if (peek() === '\n') {
-          throw new Error(
-            `Unterminated string at line ${line}, column ${startColumn}`
-          );
-        }
+      if (peek() === quote) {
+        advance();
+        break;
+      }
+
+      // Template literals allow newlines, regular strings don't
+      if (!isTemplate && peek() === '\n') {
+        throw new Error(
+          `Unterminated string at line ${line}, column ${startColumn}`
+        );
       }
 
       // Handle escape sequences
@@ -169,6 +163,9 @@ export function tokenize(source: string): Token[] {
             break;
           case '"':
             value += '"';
+            break;
+          case '`':
+            value += '`';
             break;
           default:
             value += escaped;
@@ -225,6 +222,9 @@ export function tokenize(source: string): Token[] {
   }
 
   function skipComment(): void {
+    // Skip the // characters
+    advance();
+    advance();
     // Skip until end of line
     while (peek() !== '\n' && pos < source.length) {
       advance();
@@ -241,8 +241,8 @@ export function tokenize(source: string): Token[] {
       continue;
     }
 
-    // Comments
-    if (ch === '#') {
+    // Comments (// style)
+    if (ch === '/' && peek(1) === '/') {
       skipComment();
       continue;
     }
@@ -254,8 +254,8 @@ export function tokenize(source: string): Token[] {
       continue;
     }
 
-    // String literals
-    if (ch === '"' || ch === "'") {
+    // String literals (single, double, or template)
+    if (ch === '"' || ch === "'" || ch === '`') {
       const value = readString(ch);
       addToken(TokenType.STRING, value, startColumn);
       continue;

@@ -29,6 +29,7 @@ export type {
   StringLiteral,
   BooleanLiteral,
   NullLiteral,
+  UndefinedLiteral,
   Identifier,
   ListExpression,
   DictExpression,
