@@ -20,6 +20,7 @@ import {
   GoalSeeking,
   primitive,
   decomposition,
+  evaluator,
   type LLMConfig,
   type GoalContext,
   type GoalEvaluation,
@@ -97,6 +98,7 @@ class FunctionOptimizer extends GoalSeeking<OptimizationContext> {
     const config: GoalSeekingConfig = {
       maxGoalIterations: maxIterations,
       confidenceThreshold: 0.95,
+      verbose: true,
     };
     super(llm, createOptimizationContext(), 'FunctionOptimizer',
       'Finds the global maximum of a function by sampling points', config, cache);
@@ -166,10 +168,11 @@ const v3 = evaluate(5.5)`,
     }
   }
 
-  protected override async evaluateGoal(
+  @evaluator()
+  checkConverged(
     _goal: string,
     context: OptimizationContext
-  ): Promise<GoalEvaluation> {
+  ): GoalEvaluation {
     return {
       achieved: context.converged,
       confidence: context.converged ? 1.0 : 0,

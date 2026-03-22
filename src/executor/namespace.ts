@@ -358,4 +358,5 @@ export const DEFAULT_BUILTINS: Record<string, Function> = {
   // String functions
   ord: (c: string) => c.charCodeAt(0),
   chr: (n: number) => String.fromCharCode(n),
+
 };

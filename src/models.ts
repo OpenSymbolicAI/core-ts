@@ -280,6 +280,7 @@ export type GoalIteration = z.infer<typeof GoalIterationSchema>;
 export interface GoalSeekingConfig extends DesignExecuteConfig {
   maxGoalIterations?: number;
   confidenceThreshold?: number;
+  verbose?: boolean;
 }
 
 export const GoalSeekingResultSchema = z.object({

@@ -202,11 +202,14 @@ export class PlanInterpreter {
       case ts.SyntaxKind.NullKeyword:
         return null;
 
-      case ts.SyntaxKind.UndefinedKeyword:
-        return undefined;
-
-      case ts.SyntaxKind.Identifier:
-        return this.namespace.get((node as ts.Identifier).text);
+      case ts.SyntaxKind.Identifier: {
+        const name = (node as ts.Identifier).text;
+        // JS globals that aren't functions
+        if (name === 'Infinity') return Infinity;
+        if (name === 'NaN') return NaN;
+        if (name === 'undefined') return undefined;
+        return this.namespace.get(name);
+      }
 
       case ts.SyntaxKind.ArrayLiteralExpression: {
         const arr = node as ts.ArrayLiteralExpression;

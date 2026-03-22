@@ -53,6 +53,8 @@ export const DEFAULT_ALLOWED_BUILTINS = new Set([
   'Math', 'abs', 'min', 'max', 'round', 'floor', 'ceil', 'pow', 'sqrt',
   'keys', 'values', 'entries',
   'console', 'JSON', 'parseInt', 'parseFloat', 'isNaN', 'isFinite',
+  // JS globals
+  'Infinity', 'NaN', 'undefined',
   // Python-style builtins from executor namespace
   'len', 'range', 'enumerate', 'zip', 'int', 'float', 'str', 'bool',
   'list', 'dict', 'set', 'tuple', 'sum', 'sorted', 'reversed',
