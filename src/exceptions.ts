@@ -2,9 +2,6 @@
  * Exception hierarchy for OpenSymbolicAI execution errors.
  */
 
-/**
- * Base error class for all execution-related errors.
- */
 export class ExecutionError extends Error {
   public readonly code?: string;
   public readonly details: Record<string, unknown>;
@@ -22,7 +19,6 @@ export class ExecutionError extends Error {
     this.details = details;
     this.haltExecution = haltExecution;
 
-    // Maintains proper stack trace for where our error was thrown (only works in V8)
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, this.constructor);
     }
@@ -39,9 +35,6 @@ export class ExecutionError extends Error {
   }
 }
 
-/**
- * Error for input validation failures.
- */
 export class ValidationError extends ExecutionError {
   public readonly field?: string;
 
@@ -56,9 +49,6 @@ export class ValidationError extends ExecutionError {
   }
 }
 
-/**
- * Error when preconditions are not met before an operation.
- */
 export class PreconditionError extends ExecutionError {
   constructor(message: string, details?: Record<string, unknown>) {
     super(message, 'PRECONDITION_FAILED', details);
@@ -66,9 +56,6 @@ export class PreconditionError extends ExecutionError {
   }
 }
 
-/**
- * Error when a required resource is unavailable.
- */
 export class ResourceError extends ExecutionError {
   public readonly resourceType: string;
   public readonly resourceId?: string;
@@ -86,9 +73,6 @@ export class ResourceError extends ExecutionError {
   }
 }
 
-/**
- * Error during operation execution.
- */
 export class OperationError extends ExecutionError {
   public readonly operationName: string;
 
@@ -103,9 +87,6 @@ export class OperationError extends ExecutionError {
   }
 }
 
-/**
- * Error that can potentially be resolved by retrying.
- */
 export class RetryableError extends ExecutionError {
   public readonly maxRetries: number;
   public readonly currentAttempt: number;
@@ -127,9 +108,6 @@ export class RetryableError extends ExecutionError {
   }
 }
 
-/**
- * Error when plan validation fails.
- */
 export class PlanValidationError extends ExecutionError {
   public readonly planText: string;
   public readonly validationErrors: string[];
@@ -147,9 +125,6 @@ export class PlanValidationError extends ExecutionError {
   }
 }
 
-/**
- * Error when plan parsing fails.
- */
 export class PlanParseError extends ExecutionError {
   public readonly planText: string;
   public readonly line?: number;
@@ -170,9 +145,6 @@ export class PlanParseError extends ExecutionError {
   }
 }
 
-/**
- * Error when LLM generation fails.
- */
 export class LLMError extends ExecutionError {
   public readonly provider: string;
   public readonly model: string;
@@ -193,9 +165,6 @@ export class LLMError extends ExecutionError {
   }
 }
 
-/**
- * Error when a mutation is rejected by the approval hook.
- */
 export class MutationRejectedError extends ExecutionError {
   public readonly methodName: string;
   public readonly reason: string;
@@ -216,9 +185,6 @@ export class MutationRejectedError extends ExecutionError {
   }
 }
 
-/**
- * Error when checkpoint operations fail.
- */
 export class CheckpointError extends ExecutionError {
   public readonly checkpointId?: string;
 
@@ -230,5 +196,56 @@ export class CheckpointError extends ExecutionError {
     super(message, 'CHECKPOINT_ERROR', { ...details, checkpointId });
     this.name = 'CheckpointError';
     this.checkpointId = checkpointId;
+  }
+}
+
+/**
+ * Error when a loop guard triggers (exceeded max iterations).
+ */
+export class LoopGuardError extends ExecutionError {
+  public readonly maxIterations: number;
+
+  constructor(maxIterations: number, details?: Record<string, unknown>) {
+    super(
+      `Loop guard: exceeded ${maxIterations} iterations`,
+      'LOOP_GUARD_ERROR',
+      { ...details, maxIterations }
+    );
+    this.name = 'LoopGuardError';
+    this.maxIterations = maxIterations;
+  }
+}
+
+/**
+ * Error when goal seeking fails or exceeds iterations.
+ */
+export class GoalSeekingError extends ExecutionError {
+  public readonly iterationsCompleted: number;
+
+  constructor(
+    message: string,
+    iterationsCompleted: number,
+    details?: Record<string, unknown>
+  ) {
+    super(message, 'GOAL_SEEKING_ERROR', { ...details, iterationsCompleted });
+    this.name = 'GoalSeekingError';
+    this.iterationsCompleted = iterationsCompleted;
+  }
+}
+
+/**
+ * Error when total primitive call limit is exceeded.
+ */
+export class MaxPrimitiveCallsError extends ExecutionError {
+  public readonly maxCalls: number;
+
+  constructor(maxCalls: number, details?: Record<string, unknown>) {
+    super(
+      `Exceeded maximum total primitive calls (${maxCalls})`,
+      'MAX_PRIMITIVE_CALLS_ERROR',
+      { ...details, maxCalls }
+    );
+    this.name = 'MaxPrimitiveCallsError';
+    this.maxCalls = maxCalls;
   }
 }

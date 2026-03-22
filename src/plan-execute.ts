@@ -3,10 +3,12 @@
  *
  * Subclass PlanExecute and define @primitive methods to create an agent.
  * The LLM will generate plans composed of your primitive calls,
- * which are then safely interpreted and executed.
+ * which are then safely parsed using the TypeScript Compiler API,
+ * validated via AST walking, and interpreted without eval().
  */
 
 import 'reflect-metadata';
+import ts from 'typescript';
 import {
   type LLM,
   type LLMConfig,
@@ -20,7 +22,8 @@ import {
   formatPrimitiveSignatures,
   formatDecompositionExamples,
 } from './core.js';
-import { PlanParser, validatePlanOrThrow, DEFAULT_ALLOWED_BUILTINS } from './parser/index.js';
+import { parsePlan, resolveCalleeName, getNodeLine } from './parser/ts-parser.js';
+import { validatePlanOrThrow, DEFAULT_ALLOWED_BUILTINS } from './parser/ts-validator.js';
 import { ExecutionNamespace, DEFAULT_BUILTINS, PlanInterpreter } from './executor/index.js';
 import { PlanValidationError } from './exceptions.js';
 import type {
@@ -36,91 +39,25 @@ import type {
   PlanGeneration,
 } from './models.js';
 
-/**
- * Configuration options for PlanExecute.
- */
 export interface PlanExecuteConfig {
-  /**
-   * Custom builtins to make available in plans.
-   * Merged with DEFAULT_BUILTINS.
-   */
-  allowedBuiltins?: Record<string, Function>;
-
-  /**
-   * Whether to skip JSON serialization of results.
-   */
+  allowedBuiltins?: Record<string, (...args: unknown[]) => unknown>;
   skipResultSerialization?: boolean;
-
-  /**
-   * Enable multi-turn mode where variables persist across runs.
-   */
   multiTurn?: boolean;
-
-  /**
-   * Callback invoked before executing mutations.
-   * Return a string to reject the mutation with that reason.
-   */
   onMutation?: (context: MutationHookContext) => string | null | undefined;
-
-  /**
-   * Maximum number of plan generation retries on validation failure.
-   */
   maxPlanRetries?: number;
-
-  /**
-   * Whether to require explicit approval for mutations.
-   */
   requireMutationApproval?: boolean;
-
-  /**
-   * Worker ID for distributed execution.
-   */
   workerId?: string;
 }
 
-/**
- * Abstract base class for plan-and-execute agents.
- *
- * Subclass this and define @primitive methods to create your agent.
- *
- * @example
- * ```typescript
- * class Calculator extends PlanExecute {
- *   @primitive({ readOnly: true })
- *   add(a: number, b: number): number {
- *     return a + b;
- *   }
- *
- *   @decomposition(
- *     'Add two numbers',
- *     'const result = add(2, 3)'
- *   )
- *   _exampleAdd() {}
- * }
- *
- * const calc = new Calculator(llmConfig, 'Calculator', 'A simple calculator');
- * const result = await calc.run('Add 2 and 3');
- * ```
- */
 export abstract class PlanExecute {
   protected llm: LLM;
   protected config: PlanExecuteConfig;
-  protected parser = new PlanParser();
 
-  private primitives: Map<string, PrimitiveMetadata>;
-  private decompositions: Map<string, DecompositionMetadata>;
-  private history: ConversationTurn[] = [];
-  private persistedNamespace: Record<string, unknown> = {};
+  protected primitives: Map<string, PrimitiveMetadata>;
+  protected decompositions: Map<string, DecompositionMetadata>;
+  protected history: ConversationTurn[] = [];
+  protected persistedNamespace: Record<string, unknown> = {};
 
-  /**
-   * Create a new PlanExecute agent.
-   *
-   * @param llm - LLM instance or configuration
-   * @param name - Agent name (used in prompts)
-   * @param description - Agent description (used in prompts)
-   * @param config - Optional configuration
-   * @param cache - Optional LLM cache
-   */
   constructor(
     llm: LLM | LLMConfig,
     public name: string = '',
@@ -132,7 +69,6 @@ export abstract class PlanExecute {
     this.config = config ?? {};
     this.name = name || this.constructor.name;
 
-    // Introspect decorated methods
     this.primitives = getPrimitives(this);
     this.decompositions = getDecompositions(this);
   }
@@ -141,16 +77,12 @@ export abstract class PlanExecute {
   // Public API
   // ============================================================
 
-  /**
-   * Run a task: generate a plan and execute it.
-   */
   async run(task: string): Promise<OrchestrationResult> {
     const maxRetries = this.config.maxPlanRetries ?? 2;
     const planAttempts: PlanAttempt[] = [];
     let lastPlan = '';
     let lastError = '';
 
-    // Plan generation with retries
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const feedback = attempt > 0 ? lastError : undefined;
@@ -164,20 +96,13 @@ export abstract class PlanExecute {
           feedback: feedback ?? null,
         });
 
-        // Validate the plan
         this.validatePlan(planResult.plan);
 
-        // Execute the plan
         const execResult = await this.execute(planResult.plan);
         const allSucceeded = execResult.trace.steps.every((s) => s.success);
 
-        // Record in multi-turn history
         if (this.config.multiTurn) {
-          this.history.push({
-            role: 'user',
-            task,
-            timestamp: new Date(),
-          });
+          this.history.push({ role: 'user', task, timestamp: new Date() });
           this.history.push({
             role: 'assistant',
             task,
@@ -224,9 +149,7 @@ export abstract class PlanExecute {
               task,
             };
           }
-          // Continue to next retry
         } else {
-          // Unexpected error
           return {
             success: false,
             result: null,
@@ -239,7 +162,6 @@ export abstract class PlanExecute {
       }
     }
 
-    // Should not reach here
     return {
       success: false,
       result: null,
@@ -248,9 +170,6 @@ export abstract class PlanExecute {
     };
   }
 
-  /**
-   * Generate a plan for a task without executing it.
-   */
   async plan(task: string, feedback?: string): Promise<PlanResult> {
     const prompt = this.buildPlanPrompt(task, feedback);
     const startTime = performance.now();
@@ -277,32 +196,26 @@ export abstract class PlanExecute {
     };
   }
 
-  /**
-   * Validate a plan without executing it.
-   */
   validatePlan(planText: string): void {
-    const plan = this.parser.parse(planText);
+    const sourceFile = parsePlan(planText);
     const primitiveNames = new Set(this.primitives.keys());
     const builtinNames = new Set([
       ...DEFAULT_ALLOWED_BUILTINS,
       ...Object.keys(this.config.allowedBuiltins ?? {}),
     ]);
 
-    validatePlanOrThrow(plan, {
+    validatePlanOrThrow(sourceFile, {
       primitiveNames,
       allowedBuiltins: builtinNames,
       allowSelfCalls: true,
+      allowControlFlow: false,
     });
   }
 
-  /**
-   * Execute a plan that has already been validated.
-   */
   async execute(planText: string): Promise<ExecutionResult> {
-    // Parse the plan
-    const plan = this.parser.parse(planText);
+    let sourceFile = parsePlan(planText);
+    sourceFile = this.transformSourceFile(sourceFile);
 
-    // Create execution namespace
     const builtins = {
       ...DEFAULT_BUILTINS,
       ...(this.config.allowedBuiltins ?? {}),
@@ -315,39 +228,32 @@ export abstract class PlanExecute {
       initialVariables: this.config.multiTurn ? this.persistedNamespace : {},
     });
 
-    // Create interpreter
-    const interpreter = new PlanInterpreter(namespace, {
-      onMutation: this.config.onMutation,
-      skipResultSerialization: this.config.skipResultSerialization,
-    });
+    const interpreter = this.createInterpreter(namespace);
 
-    // Execute
-    const result = await interpreter.execute(plan);
+    const result = await interpreter.execute(sourceFile);
 
-    // Persist namespace for multi-turn
     if (this.config.multiTurn) {
       this.persistedNamespace = namespace.snapshot();
     }
 
-    // Build trace
     const trace: ExecutionTrace = {
       steps: result.steps,
       totalTimeSeconds: result.steps.reduce((sum: number, s) => sum + s.timeSeconds, 0),
     };
 
-    const lastStep = result.steps[result.steps.length - 1];
-
     return {
-      valueType: lastStep?.resultType ?? 'undefined',
+      valueType: result.finalValue === undefined ? 'undefined' : typeof result.finalValue === 'object' ? (Array.isArray(result.finalValue) ? 'array' : 'object') : typeof result.finalValue,
       valueName: result.finalVariable,
-      valueJson: lastStep?.resultJson ?? 'null',
+      valueJson: this.safeSerialize(result.finalValue),
       trace,
     };
   }
 
-  /**
-   * Analyze a plan to extract primitive calls.
-   */
+  private safeSerialize(value: unknown): string {
+    try { return JSON.stringify(value); }
+    catch { return 'null'; }
+  }
+
   analyzePlan(planText: string): {
     primitiveCalls: Array<{
       methodName: string;
@@ -357,7 +263,7 @@ export abstract class PlanExecute {
     }>;
     hasMutations: boolean;
   } {
-    const plan = this.parser.parse(planText);
+    const sourceFile = parsePlan(planText);
     const calls: Array<{
       methodName: string;
       args: Record<string, string>;
@@ -367,73 +273,55 @@ export abstract class PlanExecute {
 
     let hasMutations = false;
 
-    for (const stmt of plan.statements) {
-      if (stmt.value.type === 'call') {
-        let methodName = stmt.value.callee;
-        if (methodName.startsWith('this.')) {
-          methodName = methodName.slice(5);
-        }
+    const visit = (node: ts.Node) => {
+      if (ts.isVariableStatement(node)) {
+        const decl = node.declarationList.declarations[0];
+        if (decl?.initializer && ts.isCallExpression(decl.initializer)) {
+          let methodName = resolveCalleeName(decl.initializer.expression, sourceFile);
+          if (methodName.startsWith('this.')) {
+            methodName = methodName.slice(5);
+          }
 
-        const args: Record<string, string> = {};
-        stmt.value.args.forEach((arg, i) => {
-          args[`arg${i}`] =
-            arg.type === 'identifier'
-              ? arg.name
-              : arg.type === 'string'
-                ? `"${arg.value}"`
-                : String('value' in arg ? arg.value : arg.type);
-        });
-        for (const [key, value] of Object.entries(stmt.value.kwargs)) {
-          args[key] =
-            value.type === 'identifier'
-              ? value.name
-              : value.type === 'string'
-                ? `"${value.value}"`
-                : String('value' in value ? value.value : value.type);
-        }
+          const args: Record<string, string> = {};
+          decl.initializer.arguments.forEach((arg, i) => {
+            args[`arg${i}`] = arg.getText(sourceFile);
+          });
 
-        const meta = this.primitives.get(methodName);
-        if (meta && !meta.readOnly) {
-          hasMutations = true;
-        }
+          const meta = this.primitives.get(methodName);
+          if (meta && !meta.readOnly) {
+            hasMutations = true;
+          }
 
-        calls.push({
-          methodName,
-          args,
-          statement: `${stmt.variable} = ${stmt.value.callee}(...)`,
-          line: stmt.line,
-        });
+          const varName = ts.isIdentifier(decl.name) ? decl.name.text : '?';
+          calls.push({
+            methodName,
+            args,
+            statement: `${varName} = ${methodName}(...)`,
+            line: getNodeLine(node, sourceFile),
+          });
+        }
       }
-    }
+      ts.forEachChild(node, visit);
+    };
+
+    ts.forEachChild(sourceFile, visit);
 
     return { primitiveCalls: calls, hasMutations };
   }
 
-  /**
-   * Reset the multi-turn history and persisted namespace.
-   */
   reset(): void {
     this.history = [];
     this.persistedNamespace = {};
   }
 
-  /**
-   * Get the conversation history (multi-turn mode).
-   */
   getHistory(): ConversationTurn[] {
     return [...this.history];
   }
 
-  /**
-   * Get the list of primitive methods.
-   */
   getPrimitiveNames(): string[] {
     return [...this.primitives.keys()];
   }
 
-  /**
-   * Get the list of decomposition examples.
-   */
   getDecompositionNames(): string[] {
     return [...this.decompositions.keys()];
   }
@@ -442,24 +330,29 @@ export abstract class PlanExecute {
   // Protected methods (for subclass customization)
   // ============================================================
 
-  /**
-   * Build the planning prompt.
-   * Override to customize the prompt format.
-   */
+  protected transformSourceFile(sourceFile: ts.SourceFile): ts.SourceFile {
+    return sourceFile;
+  }
+
+  protected createInterpreter(namespace: ExecutionNamespace): PlanInterpreter {
+    return new PlanInterpreter(namespace, {
+      onMutation: this.config.onMutation,
+      skipResultSerialization: this.config.skipResultSerialization,
+    });
+  }
+
   protected buildPlanPrompt(task: string, feedback?: string): string {
     const primitiveDocs = formatPrimitiveSignatures(this.primitives, this);
     const examples = formatDecompositionExamples(this.decompositions);
 
     const parts: string[] = [];
 
-    // System introduction
     parts.push(`You are ${this.name}, an AI agent that generates TypeScript code plans.`);
     if (this.description) {
       parts.push('');
       parts.push(this.description);
     }
 
-    // Available primitives
     parts.push('');
     parts.push('## Available Primitive Methods');
     parts.push('');
@@ -469,7 +362,6 @@ export abstract class PlanExecute {
     parts.push(primitiveDocs);
     parts.push('```');
 
-    // Decomposition examples
     if (examples) {
       parts.push('');
       parts.push('## Example Decompositions');
@@ -477,13 +369,11 @@ export abstract class PlanExecute {
       parts.push(examples);
     }
 
-    // Multi-turn context
     if (this.config.multiTurn && this.history.length > 0) {
       parts.push('');
       parts.push('## Previous Conversation');
       parts.push('');
       for (const turn of this.history.slice(-10)) {
-        // Last 10 turns
         if (turn.role === 'user') {
           parts.push(`User: ${turn.task}`);
         } else {
@@ -495,7 +385,6 @@ export abstract class PlanExecute {
         }
       }
 
-      // Show persisted variables
       const varNames = Object.keys(this.persistedNamespace);
       if (varNames.length > 0) {
         parts.push('');
@@ -507,13 +396,11 @@ export abstract class PlanExecute {
       }
     }
 
-    // Task
     parts.push('');
     parts.push('## Task');
     parts.push('');
     parts.push(`Generate TypeScript code to accomplish this task: ${task}`);
 
-    // Feedback from previous attempt
     if (feedback) {
       parts.push('');
       parts.push('## Previous Attempt Failed');
@@ -523,18 +410,11 @@ export abstract class PlanExecute {
       parts.push('Please fix the issues and try again.');
     }
 
-    // Rules
     parts.push('');
     parts.push('## Rules');
     parts.push('');
-    parts.push('1. Output ONLY TypeScript assignment statements (const x = ...)');
-    parts.push('2. Each statement must assign a result to a variable');
-    parts.push('3. You can ONLY call the primitive methods listed above');
-    parts.push('4. Do NOT use imports, loops, conditionals, or function definitions');
-    parts.push('5. The last assigned variable will be the final result');
-    parts.push('6. Use // for comments, true/false for booleans, null for null values');
+    parts.push(...this.getPlanRules());
 
-    // Output format
     parts.push('');
     parts.push('## Output');
     parts.push('');
@@ -543,47 +423,33 @@ export abstract class PlanExecute {
     return parts.join('\n');
   }
 
-  /**
-   * Extract code from the LLM response.
-   * Override to customize extraction.
-   */
+  protected getPlanRules(): string[] {
+    return [
+      '1. Output ONLY TypeScript assignment statements (const x = ...)',
+      '2. Each statement must assign a result to a variable',
+      '3. You can ONLY call the primitive methods listed above',
+      '4. Do NOT use imports, loops, conditionals, or function definitions',
+      '5. The last assigned variable will be the final result',
+      '6. Use // for comments, true/false for booleans, null for null values',
+    ];
+  }
+
   protected extractCodeBlock(response: string): string {
-    // Try to find a TypeScript code block
     const tsMatch = response.match(/```(?:typescript|ts)\s*([\s\S]*?)```/);
-    if (tsMatch) {
-      return tsMatch[1].trim();
-    }
+    if (tsMatch) return tsMatch[1].trim();
 
-    // Try to find a JavaScript code block
     const jsMatch = response.match(/```(?:javascript|js)\s*([\s\S]*?)```/);
-    if (jsMatch) {
-      return jsMatch[1].trim();
-    }
+    if (jsMatch) return jsMatch[1].trim();
 
-    // Try to find any code block
     const codeMatch = response.match(/```\s*([\s\S]*?)```/);
-    if (codeMatch) {
-      return codeMatch[1].trim();
-    }
+    if (codeMatch) return codeMatch[1].trim();
 
-    // No code block found - try to use the whole response
-    // But strip any leading/trailing non-code content
     const lines = response.trim().split('\n');
     const codeLines: string[] = [];
 
     for (const line of lines) {
-      // Skip comment-only lines
-      if (/^\s*\/\//.test(line)) {
-        continue;
-      }
-      // Skip lines that look like prose
-      if (
-        /^[A-Z][a-z].*:$/.test(line) ||
-        /^(Here|This|The|I|Let)/.test(line)
-      ) {
-        continue;
-      }
-      // Include lines that look like TypeScript assignments
+      if (/^\s*\/\//.test(line)) continue;
+      if (/^[A-Z][a-z].*:$/.test(line) || /^(Here|This|The|I|Let)/.test(line)) continue;
       if (/^\s*(?:const|let)?\s*\w+\s*(?::\s*\w+)?\s*=/.test(line)) {
         codeLines.push(line);
       }
@@ -592,10 +458,6 @@ export abstract class PlanExecute {
     return codeLines.join('\n').trim();
   }
 
-  /**
-   * Hook called after extracting code from LLM response.
-   * Override to modify or observe the extracted code.
-   */
   protected onCodeExtracted(code: string): string {
     return code;
   }

@@ -32,14 +32,15 @@
   },
   "homepage": "https://github.com/OpenSymbolicAI/core-ts#readme",
   "dependencies": {
+    "dotenv": "^17.3.1",
     "reflect-metadata": "^0.2.2",
+    "typescript": "^5.7.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@types/node": "^22.0.0",
     "eslint": "^9.39.2",
-    "typescript": "^5.7.0",
     "typescript-eslint": "^8.54.0",
     "vitest": "^2.1.0"
   },

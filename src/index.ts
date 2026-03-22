@@ -5,6 +5,10 @@
  * and decomposition examples, and an LLM generates execution plans
  * composed entirely of primitive calls.
  *
+ * Uses the TypeScript Compiler API for true AST analysis — parsing,
+ * validation, loop guard injection, and safe interpretation all use
+ * the official TypeScript toolchain.
+ *
  * @example
  * ```typescript
  * import { PlanExecute, primitive, decomposition, LLMConfig } from '@opensymbolicai/core';
@@ -15,7 +19,7 @@
  *     return a + b;
  *   }
  *
- *   @decomposition('Calculate sum', 'result = add(a, b)')
+ *   @decomposition('Calculate sum', 'const result = add(2, 3)')
  *   _exampleSum() {}
  * }
  *
@@ -30,18 +34,26 @@
  * ```
  */
 
-// Core
+// Core blueprints
 export { PlanExecute } from './plan-execute.js';
 export type { PlanExecuteConfig } from './plan-execute.js';
 
+export { DesignExecute } from './design-execute.js';
+
+export { GoalSeeking } from './goal-seeking.js';
+
+// Decorators and metadata
 export {
   primitive,
   decomposition,
+  evaluator,
   recordExample,
   getPrimitives,
   getDecompositions,
+  getEvaluator,
   isPrimitive,
   isDecomposition,
+  isEvaluator,
   getPrimitiveMetadata,
   getDecompositionMetadata,
   formatPrimitiveSignatures,
@@ -70,7 +82,12 @@ export {
   SerializedValueSchema,
   PlanContextSchema,
   ExecutionCheckpointSchema,
+  GoalEvaluationSchema,
+  GoalIterationSchema,
+  GoalSeekingResultSchema,
+  TraceEventSchema,
   MethodType,
+  EventType,
 } from './models.js';
 export type {
   TokenUsage,
@@ -94,6 +111,15 @@ export type {
   ExecutionCheckpoint,
   PrimitiveMetadata,
   DecompositionMetadata,
+  DesignExecuteConfig,
+  GoalContext,
+  GoalEvaluation,
+  GoalIteration,
+  GoalSeekingConfig,
+  GoalSeekingResult,
+  TraceEvent,
+  ITraceTransport,
+  ObservabilityConfig,
 } from './models.js';
 
 // Exceptions
@@ -109,6 +135,9 @@ export {
   LLMError,
   MutationRejectedError,
   CheckpointError,
+  LoopGuardError,
+  GoalSeekingError,
+  MaxPrimitiveCallsError,
 } from './exceptions.js';
 
 // LLM
@@ -140,39 +169,26 @@ export type {
   LLMCacheEntry,
 } from './llm/index.js';
 
-// Parser
+// Parser (TypeScript Compiler API-based)
 export {
-  PlanParser,
-  tokenize,
-  TokenType,
+  parsePlan,
+  nodeToString,
+  getNodeLine,
+  getNodePosition,
+  resolveCalleeName,
+  extractVariableName,
+  isVariableStatement,
+  isExpressionStatement,
   validatePlan,
   validatePlanOrThrow,
   DANGEROUS_BUILTINS,
   DEFAULT_ALLOWED_BUILTINS,
-  isLiteral,
-  isCall,
-  isIdentifier,
-  expressionToString,
-  statementToString,
+  injectLoopGuards,
 } from './parser/index.js';
 export type {
-  Token,
   ValidationResult,
+  PlanValidationIssue,
   ValidationOptions,
-  Literal,
-  NumberLiteral,
-  StringLiteral,
-  BooleanLiteral,
-  NullLiteral,
-  Identifier,
-  ListExpression,
-  DictExpression,
-  AttributeAccess,
-  CallExpression,
-  Expression,
-  Assignment,
-  Statement,
-  Plan,
 } from './parser/index.js';
 
 // Executor
@@ -180,6 +196,7 @@ export {
   ExecutionNamespace,
   DEFAULT_BUILTINS,
   PlanInterpreter,
+  DesignInterpreter,
 } from './executor/index.js';
 export type {
   NamespaceOptions,
@@ -200,3 +217,12 @@ export type {
   Deserializer,
   CheckpointStore,
 } from './checkpoint/index.js';
+
+// Observability
+export {
+  Tracer,
+  Span,
+  InMemoryTransport,
+  FileTransport,
+  HttpTransport,
+} from './observability/index.js';

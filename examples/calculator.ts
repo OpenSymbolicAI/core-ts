@@ -1,14 +1,13 @@
 /**
- * Calculator Example - A simple calculator agent demonstrating OpenSymbolicAI.
+ * Scientific Calculator Example - PlanExecute Blueprint
  *
- * This example shows how to:
- * 1. Create a PlanExecute subclass
- * 2. Define @primitive methods
- * 3. Provide @decomposition examples
- * 4. Run the agent with a task
+ * A comprehensive calculator agent with arithmetic, trigonometry,
+ * logarithms, powers, and memory operations. Demonstrates the
+ * PlanExecute blueprint: LLM generates flat assignment plans
+ * composed entirely of primitive calls.
  */
 
-// Must import reflect-metadata before any decorators are used
+import 'dotenv/config';
 import 'reflect-metadata';
 
 import {
@@ -19,244 +18,255 @@ import {
   type LLMConfig,
 } from '../src/index.js';
 
-/**
- * A calculator agent that can perform arithmetic operations.
- *
- * The LLM generates plans composed of primitive calls like:
- * ```python
- * a = add(2, 3)
- * b = multiply(a, 4)
- * result = squareRoot(b)
- * ```
- */
-class Calculator extends PlanExecute {
-  // ============================================================
-  // State (for demonstrating mutations)
-  // ============================================================
-
+class ScientificCalculator extends PlanExecute {
   private memory = 0;
 
-  // ============================================================
-  // Primitive Methods (callable by the LLM)
-  // ============================================================
+  // ==================== Basic Arithmetic ====================
 
-  /**
-   * Add two numbers.
-   */
-  @primitive({ readOnly: true })
-  add(a: number, b: number): number {
-    return a + b;
+  @primitive({ readOnly: true, docstring: 'Add two numbers' })
+  addNumbers(firstNumber: number, secondNumber: number): number {
+    return firstNumber + secondNumber;
   }
 
-  /**
-   * Subtract two numbers.
-   */
-  @primitive({ readOnly: true })
-  subtract(a: number, b: number): number {
-    return a - b;
+  @primitive({ readOnly: true, docstring: 'Subtract two numbers' })
+  subtractNumbers(minuend: number, subtrahend: number): number {
+    return minuend - subtrahend;
   }
 
-  /**
-   * Multiply two numbers.
-   */
-  @primitive({ readOnly: true })
-  multiply(a: number, b: number): number {
-    return a * b;
+  @primitive({ readOnly: true, docstring: 'Multiply two numbers' })
+  multiplyNumbers(firstFactor: number, secondFactor: number): number {
+    return firstFactor * secondFactor;
   }
 
-  /**
-   * Divide two numbers.
-   */
-  @primitive({ readOnly: true })
-  divide(a: number, b: number): number {
-    if (b === 0) {
-      throw new Error('Division by zero');
-    }
-    return a / b;
+  @primitive({ readOnly: true, docstring: 'Divide two numbers' })
+  divideNumbers(dividend: number, divisor: number): number {
+    if (divisor === 0) throw new Error('Cannot divide by zero');
+    return dividend / divisor;
   }
 
-  /**
-   * Calculate the square root of a number.
-   */
-  @primitive({ readOnly: true })
-  squareRoot(n: number): number {
-    if (n < 0) {
-      throw new Error('Cannot calculate square root of negative number');
-    }
+  // ==================== Powers and Roots ====================
+
+  @primitive({ readOnly: true, docstring: 'Raise base to exponent' })
+  raiseToPower(baseNumber: number, exponent: number): number {
+    return Math.pow(baseNumber, exponent);
+  }
+
+  @primitive({ readOnly: true, docstring: 'Square root of a number' })
+  squareRootOf(n: number): number {
+    if (n < 0) throw new Error('Cannot calculate square root of negative number');
     return Math.sqrt(n);
   }
 
-  /**
-   * Raise a number to a power.
-   */
-  @primitive({ readOnly: true })
-  power(base: number, exponent: number): number {
-    return Math.pow(base, exponent);
+  // ==================== Trigonometric Functions ====================
+
+  @primitive({ readOnly: true, docstring: 'Sine of angle in radians' })
+  sine(angleInRadians: number): number {
+    return Math.sin(angleInRadians);
   }
 
-  /**
-   * Get the absolute value of a number.
-   */
-  @primitive({ readOnly: true })
-  absoluteValue(n: number): number {
-    return Math.abs(n);
+  @primitive({ readOnly: true, docstring: 'Cosine of angle in radians' })
+  cosine(angleInRadians: number): number {
+    return Math.cos(angleInRadians);
   }
 
-  /**
-   * Round a number to a specified number of decimal places.
-   */
-  @primitive({ readOnly: true })
-  roundTo(n: number, decimals: number = 2): number {
-    const factor = Math.pow(10, decimals);
-    return Math.round(n * factor) / factor;
+  @primitive({ readOnly: true, docstring: 'Tangent of angle in radians' })
+  tangent(angleInRadians: number): number {
+    return Math.tan(angleInRadians);
   }
 
-  /**
-   * Format a number as a string with options.
-   */
-  @primitive({ readOnly: true })
-  formatNumber(
-    value: number,
-    options?: { decimals?: number; prefix?: string; suffix?: string }
-  ): string {
-    const decimals = options?.decimals ?? 2;
-    const prefix = options?.prefix ?? '';
-    const suffix = options?.suffix ?? '';
-    return `${prefix}${value.toFixed(decimals)}${suffix}`;
+  // ==================== Angle Conversion ====================
+
+  @primitive({ readOnly: true, docstring: 'Convert degrees to radians' })
+  convertDegreesToRadians(angleInDegrees: number): number {
+    return angleInDegrees * Math.PI / 180.0;
   }
 
-  // Memory operations (mutations)
+  @primitive({ readOnly: true, docstring: 'Convert radians to degrees' })
+  convertRadiansToDegrees(angleInRadians: number): number {
+    return angleInRadians * 180.0 / Math.PI;
+  }
 
-  /**
-   * Store a value in memory.
-   */
-  @primitive({ readOnly: false })
-  memoryStore(value: number): void {
+  // ==================== Logarithms and Exponentials ====================
+
+  @primitive({ readOnly: true, docstring: 'Natural logarithm (ln)' })
+  naturalLogarithm(n: number): number {
+    if (n <= 0) throw new Error('Logarithm requires positive input');
+    return Math.log(n);
+  }
+
+  @primitive({ readOnly: true, docstring: 'Base-10 logarithm' })
+  logarithmBase10(n: number): number {
+    if (n <= 0) throw new Error('Logarithm requires positive input');
+    return Math.log10(n);
+  }
+
+  @primitive({ readOnly: true, docstring: 'e raised to a power' })
+  exponentialEToPower(exponent: number): number {
+    return Math.exp(exponent);
+  }
+
+  // ==================== Constants ====================
+
+  @primitive({ readOnly: true, docstring: 'Return the value of Pi' })
+  getPi(): number {
+    return Math.PI;
+  }
+
+  @primitive({ readOnly: true, docstring: "Return Euler's number (e)" })
+  getEulersNumber(): number {
+    return Math.E;
+  }
+
+  // ==================== Memory Operations ====================
+
+  @primitive({ readOnly: false, docstring: 'Store a value in memory' })
+  memoryStore(value: number): number {
     this.memory = value;
+    return this.memory;
   }
 
-  /**
-   * Recall the value from memory.
-   */
-  @primitive({ readOnly: true })
+  @primitive({ readOnly: true, docstring: 'Recall the value from memory' })
   memoryRecall(): number {
     return this.memory;
   }
 
-  /**
-   * Clear the memory.
-   */
-  @primitive({ readOnly: false })
-  memoryClear(): void {
-    this.memory = 0;
-  }
-
-  /**
-   * Add a value to memory.
-   */
-  @primitive({ readOnly: false })
+  @primitive({ readOnly: false, docstring: 'Add a value to memory' })
   memoryAdd(value: number): number {
     this.memory += value;
     return this.memory;
   }
 
-  // ============================================================
-  // Decomposition Examples (teach the LLM by example)
-  // ============================================================
+  @primitive({ readOnly: false, docstring: 'Subtract a value from memory' })
+  memorySubtract(value: number): number {
+    this.memory -= value;
+    return this.memory;
+  }
 
-  /**
-   * Example: Calculate the area of a circle.
-   * Uses recordExample for type-safe method references.
-   */
+  @primitive({ readOnly: false, docstring: 'Clear memory to zero' })
+  memoryClear(): number {
+    this.memory = 0;
+    return this.memory;
+  }
+
+  // ==================== Decompositions ====================
+
   @decomposition(
-    'Calculate the area of a circle given radius',
-    recordExample(calc => {
-      calc.radius_squared = calc.multiply(calc.radius, calc.radius);
-      calc.area = calc.multiply(calc.radius_squared, 3.14159);
+    'What is sine of 90 degrees?',
+    recordExample(c => {
+      c.angleRad = c.convertDegreesToRadians(90);
+      c.sin90 = c.sine(c.angleRad);
     }),
-    'Use formula: π * r²'
+    'First convert 90 degrees to radians, then calculate the sine'
+  )
+  _exampleSine90() {}
+
+  @decomposition(
+    'What is cosine of 45 degrees?',
+    recordExample(c => {
+      c.angleRad = c.convertDegreesToRadians(45);
+      c.cos45 = c.cosine(c.angleRad);
+    }),
+    'First convert 45 degrees to radians, then calculate the cosine'
+  )
+  _exampleCosine45() {}
+
+  @decomposition(
+    'Calculate the area of a circle with radius 5',
+    recordExample(c => {
+      c.pi = c.getPi();
+      c.radiusSquared = c.raiseToPower(5, 2);
+      c.area = c.multiplyNumbers(c.pi, c.radiusSquared);
+    }),
+    'Get pi, then multiply pi by the square of the radius (pi * r^2)'
   )
   _exampleCircleArea() {}
 
-  /**
-   * Example: Calculate the hypotenuse of a right triangle.
-   */
   @decomposition(
-    'Calculate the hypotenuse of a right triangle given two sides',
-    recordExample(calc => {
-      calc.a_squared = calc.multiply(calc.a, calc.a);
-      calc.b_squared = calc.multiply(calc.b, calc.b);
-      calc.sum_of_squares = calc.add(calc.a_squared, calc.b_squared);
-      calc.hypotenuse = calc.squareRoot(calc.sum_of_squares);
+    'Calculate the hypotenuse of a right triangle with sides 3 and 4',
+    recordExample(c => {
+      c.aSquared = c.raiseToPower(3, 2);
+      c.bSquared = c.raiseToPower(4, 2);
+      c.sumOfSquares = c.addNumbers(c.aSquared, c.bSquared);
+      c.hypotenuse = c.squareRootOf(c.sumOfSquares);
     }),
-    'Use Pythagorean theorem: √(a² + b²)'
+    'Square both sides, add them, take square root (Pythagorean theorem)'
   )
   _exampleHypotenuse() {}
 
-  /**
-   * Example: Calculate compound interest.
-   */
   @decomposition(
-    'Calculate compound interest',
-    recordExample(calc => {
-      calc.one_plus_rate = calc.add(1, calc.rate);
-      calc.growth_factor = calc.power(calc.one_plus_rate, calc.years);
-      calc.final_amount = calc.multiply(calc.principal, calc.growth_factor);
+    'What is 15% of 200?',
+    recordExample(c => {
+      c.decimal = c.divideNumbers(15, 100);
+      c.result = c.multiplyNumbers(c.decimal, 200);
     }),
-    'Use formula: P * (1 + r)^t'
+    'Divide the percentage by 100 to get the decimal, then multiply by the value'
+  )
+  _examplePercentage() {}
+
+  @decomposition(
+    'Calculate compound interest: principal 1000, rate 5%, time 3 years',
+    recordExample(c => {
+      c.rateDecimal = c.divideNumbers(5, 100);
+      c.rateTimesTime = c.multiplyNumbers(c.rateDecimal, 3);
+      c.growthFactor = c.exponentialEToPower(c.rateTimesTime);
+      c.finalAmount = c.multiplyNumbers(1000, c.growthFactor);
+    }),
+    'Use the formula A = P * e^(rt)'
   )
   _exampleCompoundInterest() {}
 
-  /**
-   * Example: Calculate the percentage of a number.
-   */
   @decomposition(
-    'Calculate what percentage one number is of another',
-    recordExample(calc => {
-      calc.fraction = calc.divide(calc.part, calc.whole);
-      calc.percentage = calc.multiply(calc.fraction, 100);
+    'What is the average of 10, 20, and 30?',
+    recordExample(c => {
+      c.sum1 = c.addNumbers(10, 20);
+      c.total = c.addNumbers(c.sum1, 30);
+      c.average = c.divideNumbers(c.total, 3);
     }),
-    'Use formula: (part / whole) * 100'
+    'Add all numbers together, then divide by count'
   )
-  _examplePercentage() {}
+  _exampleAverage() {}
+
+  @decomposition(
+    'What is the circumference of a circle with radius 10?',
+    recordExample(c => {
+      c.pi = c.getPi();
+      c.twoPi = c.multiplyNumbers(2, c.pi);
+      c.circumference = c.multiplyNumbers(c.twoPi, 10);
+    }),
+    'circumference = 2 * pi * r'
+  )
+  _exampleCircumference() {}
 }
 
 // ============================================================
-// Main - Example usage
+// Main
 // ============================================================
 
 async function main() {
-  // Configure the LLM (use environment variables for API keys)
   const config: LLMConfig = {
-    provider: 'ollama',
-    model: 'gpt-oss:20b',
-    params: {
-      temperature: 0,
-      maxTokens: 1000,
-    },
+    provider: 'groq',
+    model: 'openai/gpt-oss-120b',
+    apiKey: process.env.GROQ_API_KEY,
+    params: { temperature: 0, maxTokens: 1000 },
   };
 
-  // Create the calculator agent
-  const calc = new Calculator(
+  const calc = new ScientificCalculator(
     config,
-    'Calculator',
-    'A scientific calculator that can perform arithmetic operations, calculate formulas, and store values in memory.'
+    'ScientificCalculator',
+    'A scientific calculator with arithmetic, trigonometry, logarithms, powers, and memory.'
   );
 
-  console.log('Calculator Agent Example');
-  console.log('========================\n');
-
-  // Show available primitives
-  console.log('Available primitives:', calc.getPrimitiveNames().join(', '));
-  console.log('Available decompositions:', calc.getDecompositionNames().join(', '));
+  console.log('Scientific Calculator Agent');
+  console.log('==========================\n');
+  console.log('Primitives:', calc.getPrimitiveNames().join(', '));
   console.log('');
 
-  // Example tasks
   const tasks = [
-    'What is 2 + 3?',
+    'What is sine of 90 degrees?',
     'Calculate the area of a circle with radius 5',
     'What is the hypotenuse of a right triangle with sides 3 and 4?',
     'Calculate 15% of 200',
+    'What is ln(e)?',
   ];
 
   for (const task of tasks) {
@@ -265,26 +275,12 @@ async function main() {
 
     try {
       const result = await calc.run(task);
-
       if (result.success) {
         console.log(`Result: ${result.result}`);
-        console.log(`Plan:\n${result.plan}`);
-
         if (result.trace) {
-          console.log(`\nExecution trace (${result.trace.steps.length} steps):`);
           for (const step of result.trace.steps) {
-            console.log(`  ${step.stepNumber}. ${step.statement}`);
-            console.log(`     → ${step.resultValue} (${step.resultType})`);
+            console.log(`  ${step.stepNumber}. ${step.statement} => ${step.resultValue}`);
           }
-        }
-
-        if (result.metrics) {
-          console.log(`\nMetrics:`);
-          console.log(`  Plan time: ${result.metrics.planTimeSeconds?.toFixed(2)}s`);
-          console.log(`  Exec time: ${result.metrics.executeTimeSeconds?.toFixed(3)}s`);
-          console.log(
-            `  Tokens: ${result.metrics.planTokens?.inputTokens ?? 0} in / ${result.metrics.planTokens?.outputTokens ?? 0} out`
-          );
         }
       } else {
         console.log(`Error: ${result.error}`);
@@ -295,7 +291,6 @@ async function main() {
   }
 }
 
-// Run if executed directly
 main().catch(console.error);
 
-export { Calculator };
+export { ScientificCalculator };

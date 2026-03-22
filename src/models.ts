@@ -168,7 +168,6 @@ export interface SerializedValue {
   serializable: boolean;
 }
 
-// Use a simple schema that validates the structure
 export const SerializedValueSchema: z.ZodType<SerializedValue> = z.object({
   type: z.string(),
   value: z.unknown(),
@@ -210,6 +209,7 @@ export type ExecutionCheckpoint = z.infer<typeof ExecutionCheckpointSchema>;
 export interface PrimitiveMetadata {
   name: string;
   readOnly: boolean;
+  deterministic?: boolean;
   docstring?: string;
   signature?: string;
 }
@@ -226,4 +226,126 @@ export interface DecompositionMetadata {
 export enum MethodType {
   PRIMITIVE = 'primitive',
   DECOMPOSITION = 'decomposition',
+  EVALUATOR = 'evaluator',
+}
+
+// ============================================================
+// DesignExecute types
+// ============================================================
+
+export interface DesignExecuteConfig {
+  maxLoopIterations?: number;
+  maxTotalPrimitiveCalls?: number;
+  enableLoopGuards?: boolean;
+  allowBreakContinue?: boolean;
+  allowedBuiltins?: Record<string, (...args: unknown[]) => unknown>;
+  skipResultSerialization?: boolean;
+  multiTurn?: boolean;
+  onMutation?: (context: MutationHookContext) => string | null | undefined;
+  maxPlanRetries?: number;
+  requireMutationApproval?: boolean;
+  workerId?: string;
+}
+
+// ============================================================
+// GoalSeeking types
+// ============================================================
+
+export interface GoalContext {
+  goal: string;
+  currentState: string;
+  iterationCount: number;
+  observations: string[];
+}
+
+export const GoalEvaluationSchema = z.object({
+  achieved: z.boolean(),
+  confidence: z.number().min(0).max(1).default(0),
+  reasoning: z.string(),
+  suggestedNextAction: z.string().optional(),
+  metrics: z.record(z.unknown()).optional(),
+});
+export type GoalEvaluation = z.infer<typeof GoalEvaluationSchema>;
+
+export const GoalIterationSchema = z.object({
+  iterationNumber: z.number(),
+  plan: z.string().optional(),
+  executionResult: OrchestrationResultSchema.optional(),
+  evaluation: GoalEvaluationSchema,
+  contextSnapshot: z.record(z.unknown()).default({}),
+  timeSeconds: z.number().default(0),
+});
+export type GoalIteration = z.infer<typeof GoalIterationSchema>;
+
+export interface GoalSeekingConfig extends DesignExecuteConfig {
+  maxGoalIterations?: number;
+  confidenceThreshold?: number;
+}
+
+export const GoalSeekingResultSchema = z.object({
+  achieved: z.boolean(),
+  iterations: z.array(GoalIterationSchema).default([]),
+  finalEvaluation: GoalEvaluationSchema.optional(),
+  finalContext: z.record(z.unknown()).default({}),
+  totalTimeSeconds: z.number().default(0),
+  totalTokens: TokenUsageSchema.default({ inputTokens: 0, outputTokens: 0 }),
+});
+export type GoalSeekingResult = z.infer<typeof GoalSeekingResultSchema>;
+
+// ============================================================
+// Observability types
+// ============================================================
+
+export enum EventType {
+  RunStarted = 'run.started',
+  RunCompleted = 'run.completed',
+  RunFailed = 'run.failed',
+  PlanStarted = 'plan.started',
+  PlanLlmRequest = 'plan.llm_request',
+  PlanLlmResponse = 'plan.llm_response',
+  PlanGenerated = 'plan.generated',
+  PlanValidationFailed = 'plan.validation_failed',
+  PlanRetry = 'plan.retry',
+  ExecutionStarted = 'execution.started',
+  ExecutionStepStarted = 'execution.step_started',
+  ExecutionStepCompleted = 'execution.step_completed',
+  ExecutionStepFailed = 'execution.step_failed',
+  ExecutionCompleted = 'execution.completed',
+  ExecutionFailed = 'execution.failed',
+  MutationRequested = 'mutation.requested',
+  MutationApproved = 'mutation.approved',
+  MutationRejected = 'mutation.rejected',
+  LoopGuardTriggered = 'loop_guard.triggered',
+  GoalSeekStarted = 'goal.seek_started',
+  GoalIterationStarted = 'goal.iteration_started',
+  GoalIterationCompleted = 'goal.iteration_completed',
+  GoalEvaluated = 'goal.evaluated',
+  GoalAchieved = 'goal.achieved',
+  GoalSeekCompleted = 'goal.seek_completed',
+  GoalSeekFailed = 'goal.seek_failed',
+  Error = 'error',
+}
+
+export const TraceEventSchema = z.object({
+  eventType: z.nativeEnum(EventType),
+  traceId: z.string(),
+  spanId: z.string(),
+  parentSpanId: z.string().optional(),
+  timestamp: z.date().default(() => new Date()),
+  duration: z.number().optional(),
+  data: z.record(z.unknown()).default({}),
+  tags: z.record(z.string()).optional(),
+});
+export type TraceEvent = z.infer<typeof TraceEventSchema>;
+
+export interface ITraceTransport {
+  emit(event: TraceEvent): void | Promise<void>;
+  flush(): Promise<void>;
+}
+
+export interface ObservabilityConfig {
+  enabled: boolean;
+  transports: ITraceTransport[];
+  captureLlmPrompts?: boolean;
+  captureNamespaceSnapshots?: boolean;
 }

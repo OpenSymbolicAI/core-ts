@@ -27,3 +27,5 @@ coverage/
 # Cache
 .cache/
 *.tsbuildinfo
+
+.env

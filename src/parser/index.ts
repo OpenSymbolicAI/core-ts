@@ -1,42 +1,28 @@
 /**
  * Plan parser for OpenSymbolicAI.
  *
- * Provides a safe parser and validator for Python-like assignment plans.
+ * Uses the TypeScript Compiler API for true AST analysis.
+ * No hand-rolled tokenizer or custom AST types — delegates entirely
+ * to the official TypeScript parser and transformation API.
  */
 
-export { PlanParser } from './parser.js';
-export { tokenize, TokenType } from './tokenizer.js';
-export type { Token } from './tokenizer.js';
+export {
+  parsePlan,
+  nodeToString,
+  getNodeLine,
+  getNodePosition,
+  resolveCalleeName,
+  extractVariableName,
+  isVariableStatement,
+  isExpressionStatement,
+} from './ts-parser.js';
 
 export {
   validatePlan,
   validatePlanOrThrow,
   DANGEROUS_BUILTINS,
   DEFAULT_ALLOWED_BUILTINS,
-} from './validator.js';
-export type { ValidationResult, ValidationOptions } from './validator.js';
+} from './ts-validator.js';
+export type { ValidationResult, PlanValidationIssue, ValidationOptions } from './ts-validator.js';
 
-export {
-  isLiteral,
-  isCall,
-  isIdentifier,
-  expressionToString,
-  statementToString,
-} from './ast.js';
-export type {
-  Literal,
-  NumberLiteral,
-  StringLiteral,
-  BooleanLiteral,
-  NullLiteral,
-  UndefinedLiteral,
-  Identifier,
-  ListExpression,
-  DictExpression,
-  AttributeAccess,
-  CallExpression,
-  Expression,
-  Assignment,
-  Statement,
-  Plan,
-} from './ast.js';
+export { injectLoopGuards } from './loop-guard-rewriter.js';
