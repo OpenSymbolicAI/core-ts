@@ -16,6 +16,36 @@ import { MutationRejectedError, OperationError } from '../exceptions.js';
 import { nodeToString, resolveCalleeName } from '../parser/ts-parser.js';
 import { ExecutionNamespace } from './namespace.js';
 
+/**
+ * Properties blocked at runtime (defense-in-depth).
+ * Even if the validator misses something, the interpreter won't resolve these.
+ */
+const BLOCKED_PROPERTIES = new Set([
+  'constructor', '__proto__', 'prototype',
+  '__defineGetter__', '__defineSetter__',
+  '__lookupGetter__', '__lookupSetter__',
+]);
+
+/**
+ * Strip dangerous keys from objects returned by builtin methods.
+ * Prevents prototype pollution via JSON.parse('{"__proto__": ...}').
+ */
+function sanitizeResult(value: unknown): unknown {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeResult);
+  }
+  const obj = value as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (BLOCKED_PROPERTIES.has(key)) {
+      delete obj[key];
+    }
+  }
+  return obj;
+}
+
 export interface InterpreterOptions {
   onMutation?: (context: MutationHookContext) => string | null | undefined;
   skipResultSerialization?: boolean;
@@ -221,20 +251,35 @@ export class PlanInterpreter {
 
       case ts.SyntaxKind.PropertyAccessExpression: {
         const pa = node as ts.PropertyAccessExpression;
-        const obj = await this.evaluateExpression(pa.expression);
-        if (obj === null || obj === undefined) {
+        const propName = pa.name.text;
+        // Runtime guard: block dangerous property access (defense-in-depth)
+        if (BLOCKED_PROPERTIES.has(propName)) {
           throw new OperationError(
-            `Cannot access property '${pa.name.text}' of ${obj}`,
+            `Access to property '${propName}' is blocked for security`,
             'property_access'
           );
         }
-        return (obj as Record<string, unknown>)[pa.name.text];
+        const obj = await this.evaluateExpression(pa.expression);
+        if (obj === null || obj === undefined) {
+          throw new OperationError(
+            `Cannot access property '${propName}' of ${obj}`,
+            'property_access'
+          );
+        }
+        return (obj as Record<string, unknown>)[propName];
       }
 
       case ts.SyntaxKind.ElementAccessExpression: {
         const ea = node as ts.ElementAccessExpression;
         const obj = await this.evaluateExpression(ea.expression);
         const key = await this.evaluateExpression(ea.argumentExpression);
+        // Runtime guard: block dangerous property access via bracket notation
+        if (typeof key === 'string' && BLOCKED_PROPERTIES.has(key)) {
+          throw new OperationError(
+            `Bracket access to property '${key}' is blocked for security`,
+            'element_access'
+          );
+        }
         if (obj === null || obj === undefined) {
           throw new OperationError(
             `Cannot access element of ${obj}`,
@@ -475,7 +520,10 @@ export class PlanInterpreter {
     }
 
     const args = await this.evaluateArgs(callArgs);
-    return await method.call(obj, ...args);
+    const result = await method.call(obj, ...args);
+    // Sanitize results from builtin methods to prevent prototype pollution
+    // JSON.parse can produce objects with __proto__ keys from crafted input
+    return sanitizeResult(result);
   }
 
   protected async evaluateArgs(args: ts.NodeArray<ts.Expression>): Promise<unknown[]> {

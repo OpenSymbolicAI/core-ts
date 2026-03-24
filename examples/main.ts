@@ -137,7 +137,11 @@ switch (exampleName) {
       console.log(`Task: ${task}`);
       try {
         const result = await agent.run(task);
-        if (result.success) console.log(`Total: $${(result.result as number).toFixed(2)}`);
+        if (result.success) {
+          const val = result.result;
+          if (typeof val === 'number') console.log(`Total: $${val.toFixed(2)}`);
+          else console.log(`Result: ${val}`);
+        }
         else console.log(`Error: ${result.error}`);
       } catch (e) {
         console.log(`Error: ${e instanceof Error ? e.message : String(e)}`);

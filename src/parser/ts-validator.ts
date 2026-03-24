@@ -40,7 +40,35 @@ export const DANGEROUS_BUILTINS = new Set([
   'Reflect', 'Proxy',
   'constructor', '__proto__', 'prototype',
   'globalThis',
+  'Symbol',
 ]);
+
+/**
+ * Dangerous property names that should never be accessed on objects,
+ * including via bracket notation or computed property keys.
+ */
+const DANGEROUS_PROPERTY_NAMES = new Set([
+  'constructor', '__proto__', 'prototype',
+  '__defineGetter__', '__defineSetter__',
+  '__lookupGetter__', '__lookupSetter__',
+]);
+
+/**
+ * Safe static methods on allowed builtins (e.g., Object.keys, Math.floor).
+ * Only these specific methods are allowed — not arbitrary methods on the builtin.
+ */
+const SAFE_BUILTIN_METHODS: Record<string, Set<string>> = {
+  Object: new Set(['keys', 'values', 'entries', 'assign', 'freeze', 'is']),
+  Math: new Set([
+    'abs', 'min', 'max', 'round', 'floor', 'ceil', 'pow', 'sqrt',
+    'log', 'log2', 'log10', 'sin', 'cos', 'tan', 'atan2', 'PI', 'E',
+    'random', 'sign', 'trunc', 'hypot',
+  ]),
+  JSON: new Set(['stringify', 'parse']),
+  Number: new Set(['isFinite', 'isInteger', 'isNaN', 'parseFloat', 'parseInt']),
+  String: new Set(['fromCharCode', 'fromCodePoint']),
+  Array: new Set(['isArray', 'from', 'of']),
+};
 
 /**
  * Default safe builtins available in plans.
@@ -52,7 +80,7 @@ export const DEFAULT_ALLOWED_BUILTINS = new Set([
   'Number', 'String', 'Boolean', 'Array', 'Object',
   'Math', 'abs', 'min', 'max', 'round', 'floor', 'ceil', 'pow', 'sqrt',
   'keys', 'values', 'entries',
-  'console', 'JSON', 'parseInt', 'parseFloat', 'isNaN', 'isFinite',
+  'JSON', 'parseInt', 'parseFloat', 'isNaN', 'isFinite',
   // JS globals
   'Infinity', 'NaN', 'undefined',
   // Python-style builtins from executor namespace
@@ -233,6 +261,16 @@ class PlanAstValidator {
 
   private validateVariableStatement(stmt: ts.VariableStatement): void {
     for (const decl of stmt.declarationList.declarations) {
+      // Block destructuring patterns — they bypass property name checks
+      if (ts.isArrayBindingPattern(decl.name)) {
+        this.addError('Array destructuring is not allowed in plans. Use direct variable assignments.', decl);
+        continue;
+      }
+      if (ts.isObjectBindingPattern(decl.name)) {
+        this.addError('Object destructuring is not allowed in plans. Use direct variable assignments.', decl);
+        continue;
+      }
+
       // Validate variable name
       if (ts.isIdentifier(decl.name)) {
         const name = decl.name.text;
@@ -244,6 +282,11 @@ class PlanAstValidator {
         const reserved = new Set(['this', 'true', 'false', 'null', 'undefined']);
         if (reserved.has(name)) {
           this.addError(`Cannot assign to reserved name '${name}'`, decl);
+        }
+
+        // Block variable names that shadow dangerous builtins
+        if (DANGEROUS_PROPERTY_NAMES.has(name) || DANGEROUS_BUILTINS.has(name)) {
+          this.addError(`Variable name '${name}' shadows a dangerous builtin and is not allowed`, decl);
         }
       }
 
@@ -289,6 +332,21 @@ class PlanAstValidator {
       case ts.SyntaxKind.ObjectLiteralExpression:
         for (const prop of (node as ts.ObjectLiteralExpression).properties) {
           if (ts.isPropertyAssignment(prop)) {
+            // Check for dangerous static property names
+            if (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) {
+              const keyName = ts.isIdentifier(prop.name) ? prop.name.text : prop.name.text;
+              if (DANGEROUS_PROPERTY_NAMES.has(keyName)) {
+                this.addError(`Setting dangerous property '${keyName}' on object literal is not allowed`, prop);
+              }
+              // Block overriding toString/valueOf with function references (coercion traps)
+              if ((keyName === 'toString' || keyName === 'valueOf') && ts.isIdentifier(prop.initializer)) {
+                this.addError(`Overriding '${keyName}' on object literal is not allowed (coercion trap)`, prop);
+              }
+            }
+            // Block computed property names — they can build dangerous keys at runtime
+            if (ts.isComputedPropertyName(prop.name)) {
+              this.addError('Computed property names are not allowed in object literals', prop);
+            }
             this.validateExpression(prop.initializer);
           } else if (ts.isShorthandPropertyAssignment(prop)) {
             // shorthand { x } is fine — it's a variable reference
@@ -307,6 +365,19 @@ class PlanAstValidator {
         // Block bracket access on `this` — only this.method() dot-access is allowed
         if (elemAccess.expression.kind === ts.SyntaxKind.ThisKeyword) {
           this.addError('Bracket access on this is not allowed. Use this.method() syntax.', node);
+          break;
+        }
+        // Block string literal bracket access to dangerous property names
+        if (ts.isStringLiteral(elemAccess.argumentExpression)) {
+          const propName = elemAccess.argumentExpression.text;
+          if (DANGEROUS_PROPERTY_NAMES.has(propName) || DANGEROUS_BUILTINS.has(propName)) {
+            this.addError(`Bracket access to dangerous property '${propName}' is not allowed`, node);
+            break;
+          }
+        }
+        // Block non-numeric bracket access — variable-based keys can build dangerous names at runtime
+        if (!ts.isNumericLiteral(elemAccess.argumentExpression) && !ts.isStringLiteral(elemAccess.argumentExpression)) {
+          this.addError('Dynamic bracket access with variables or expressions is not allowed. Use dot notation with known property names.', node);
           break;
         }
         this.validateExpression(elemAccess.expression);
@@ -472,14 +543,46 @@ class PlanAstValidator {
         if (SAFE_INSTANCE_METHODS.has(method)) {
           // Safe instance method — validate the object and args
           this.validateExpression(callee.expression);
-          for (const arg of node.arguments) {
-            this.validateExpression(arg);
+          // Block callback smuggling: don't allow passing identifiers that
+          // reference primitives/functions as arguments to methods like .map(), .sort()
+          const CALLBACK_METHODS = new Set(['map', 'filter', 'reduce', 'reduceRight', 'find', 'findIndex', 'some', 'every', 'forEach', 'flatMap', 'sort']);
+          if (CALLBACK_METHODS.has(method)) {
+            for (const arg of node.arguments) {
+              if (ts.isIdentifier(arg) && this.options.primitiveNames.has(arg.text)) {
+                this.addError(`Passing primitive '${arg.text}' as a callback to '${method}' is not allowed`, arg);
+              }
+              this.validateExpression(arg);
+            }
+          } else {
+            for (const arg of node.arguments) {
+              this.validateExpression(arg);
+            }
           }
           return;
         }
 
         // Check if it's a known builtin like JSON.stringify, Math.floor
+        // Only allow specific safe methods, not arbitrary methods on the builtin
         if (this.options.allowedBuiltins.has(parts[0])) {
+          const safeMethods = SAFE_BUILTIN_METHODS[parts[0]];
+          if (safeMethods && !safeMethods.has(method)) {
+            this.addError(
+              `Method '${parts[0]}.${method}' is not in the safe method allowlist for '${parts[0]}'. ` +
+              `Allowed: ${[...safeMethods].join(', ')}`,
+              node
+            );
+            return;
+          }
+          // Block callback smuggling in builtin methods
+          // JSON.parse(str, reviver), Array.from(arr, mapper), etc.
+          const BUILTIN_CALLBACK_METHODS = new Set(['parse', 'from']);
+          if (BUILTIN_CALLBACK_METHODS.has(method)) {
+            for (const arg of node.arguments) {
+              if (ts.isIdentifier(arg) && this.options.primitiveNames.has(arg.text)) {
+                this.addError(`Passing primitive '${arg.text}' as a callback to '${parts[0]}.${method}' is not allowed`, arg);
+              }
+            }
+          }
           for (const arg of node.arguments) {
             this.validateExpression(arg);
           }
