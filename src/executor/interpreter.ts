@@ -41,6 +41,8 @@ function sanitizeResult(value: unknown): unknown {
   for (const key of Object.keys(obj)) {
     if (BLOCKED_PROPERTIES.has(key)) {
       delete obj[key];
+    } else {
+      obj[key] = sanitizeResult(obj[key]);
     }
   }
   return obj;
@@ -189,17 +191,20 @@ export class PlanInterpreter {
       await this.checkMutation(decl.initializer, statementStr, stepNumber, namespaceBefore);
     }
 
-    const value = decl.initializer
+    const rawValue = decl.initializer
       ? await this.evaluateExpression(decl.initializer)
       : undefined;
 
     // Safety: primitives must not return functions
-    if (typeof value === 'function') {
+    if (typeof rawValue === 'function') {
       throw new OperationError(
         'Primitive returned a function, which is not allowed for security reasons',
         decl.initializer ? nodeToString(decl.initializer, this.sourceFile) : 'expression'
       );
     }
+
+    // Sanitize all values to strip dangerous keys (__proto__, constructor, etc.)
+    const value = sanitizeResult(rawValue);
 
     this.namespace.set(varName, value);
 
