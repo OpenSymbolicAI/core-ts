@@ -209,7 +209,6 @@ export {
   SerializerRegistry,
   defaultRegistry,
   InMemoryCheckpointStore,
-  FileCheckpointStore,
   createCheckpointId,
 } from './checkpoint/index.js';
 export type {
@@ -223,6 +222,5 @@ export {
   Tracer,
   Span,
   InMemoryTransport,
-  FileTransport,
   HttpTransport,
 } from './observability/index.js';

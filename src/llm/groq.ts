@@ -43,7 +43,7 @@ export class GroqLLM extends LLM {
   }
 
   protected getEnvApiKey(): string | undefined {
-    return process.env.GROQ_API_KEY;
+    return globalThis.process?.env?.GROQ_API_KEY;
   }
 
   protected async generateImpl(prompt: string): Promise<LLMResponse> {

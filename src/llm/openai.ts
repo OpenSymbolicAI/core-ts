@@ -39,7 +39,7 @@ export class OpenAILLM extends LLM {
   }
 
   protected getEnvApiKey(): string | undefined {
-    return process.env.OPENAI_API_KEY;
+    return globalThis.process?.env?.OPENAI_API_KEY;
   }
 
   protected async generateImpl(prompt: string): Promise<LLMResponse> {

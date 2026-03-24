@@ -32,7 +32,6 @@
   },
   "homepage": "https://github.com/OpenSymbolicAI/core-ts#readme",
   "dependencies": {
-    "dotenv": "^17.3.1",
     "reflect-metadata": "^0.2.2",
     "typescript": "^5.7.0",
     "zod": "^3.24.0"
@@ -40,6 +39,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@types/node": "^22.0.0",
+    "dotenv": "^17.3.1",
     "eslint": "^9.39.2",
     "typescript-eslint": "^8.54.0",
     "vitest": "^2.1.0"
@@ -55,6 +55,14 @@
     ".": {
       "types": "./dist/src/index.d.ts",
       "import": "./dist/src/index.js"
+    },
+    "./node": {
+      "types": "./dist/src/node.d.ts",
+      "import": "./dist/src/node.js"
+    },
+    "./browser": {
+      "types": "./dist/src/browser/index.d.ts",
+      "import": "./dist/src/browser/index.js"
     }
   }
 }

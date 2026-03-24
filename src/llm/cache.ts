@@ -1,11 +1,10 @@
-import { createHash } from 'crypto';
 import type { LLMCache, LLMCacheEntry, LLMConfig, LLMResponse } from './types.js';
 
 /**
  * Compute a cache key from config and prompt.
- * Uses SHA-256 hash of the relevant parameters.
+ * Uses SHA-256 hash via Web Crypto API (works in browsers and Node 18+).
  */
-export function computeCacheKey(config: LLMConfig, prompt: string): string {
+export async function computeCacheKey(config: LLMConfig, prompt: string): Promise<string> {
   const keyData = {
     provider: config.provider,
     model: config.model,
@@ -14,7 +13,11 @@ export function computeCacheKey(config: LLMConfig, prompt: string): string {
   };
 
   const json = JSON.stringify(keyData, Object.keys(keyData).sort());
-  return createHash('sha256').update(json).digest('hex');
+  const data = new TextEncoder().encode(json);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(hashBuffer)]
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 /**

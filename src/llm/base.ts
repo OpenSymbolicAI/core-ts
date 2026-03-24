@@ -25,7 +25,7 @@ export abstract class LLM {
   async generate(prompt: string): Promise<LLMResponse> {
     // Check cache first
     if (this.cache) {
-      const cacheKey = computeCacheKey(this.config, prompt);
+      const cacheKey = await computeCacheKey(this.config, prompt);
       const cached = await this.cache.get(cacheKey);
       if (cached) {
         return cached;
@@ -37,7 +37,7 @@ export abstract class LLM {
 
     // Cache the response
     if (this.cache) {
-      const cacheKey = computeCacheKey(this.config, prompt);
+      const cacheKey = await computeCacheKey(this.config, prompt);
       await this.cache.set(cacheKey, response);
     }
 

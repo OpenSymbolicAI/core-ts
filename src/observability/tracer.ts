@@ -5,11 +5,12 @@
  * Analogous to the .NET Tracer with trace/span ID management.
  */
 
-import { randomBytes } from 'crypto';
 import type { EventType, TraceEvent, ITraceTransport, ObservabilityConfig } from '../models.js';
 
 function generateId(): string {
-  return randomBytes(8).toString('hex');
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 export class Span {

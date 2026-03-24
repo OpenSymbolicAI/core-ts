@@ -39,7 +39,7 @@ export class FireworksLLM extends LLM {
   }
 
   protected getEnvApiKey(): string | undefined {
-    return process.env.FIREWORKS_API_KEY;
+    return globalThis.process?.env?.FIREWORKS_API_KEY;
   }
 
   protected async generateImpl(prompt: string): Promise<LLMResponse> {
